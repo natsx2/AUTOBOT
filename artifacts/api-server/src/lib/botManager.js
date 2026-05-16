@@ -340,6 +340,50 @@ function startHourlyBroadcast(userid) {
 }
 
 // ──────────────────────────────────────────────────────────────
+// Auto-post scheduler (every 2 hours to opted-in threads)
+// ──────────────────────────────────────────────────────────────
+const AUTOPOST_INTERVAL = 2 * 60 * 60 * 1000;
+const AUTO_POSTS = [
+  '🎮 Game time! Who wants to play? Drop a 🙋 if you\'re in!',
+  '🌟 Fact: The average person laughs 15 times a day. Let\'s make it 16! 😂',
+  '☕ Good vibes only in this group! How\'s everyone doing today? 😊',
+  '🎵 Music mood: What song is stuck in your head right now? Drop it! 🎶',
+  '🤔 Question: If you could travel anywhere right now, where would you go?',
+  '💡 Life tip: Drink more water, sleep enough, and never stop learning! 📚',
+  '🎲 Fun fact: Honey never expires. They found 3000-year-old honey in Egyptian tombs still edible! 🍯',
+  '🌈 Reminder: You are doing better than you think you are! Keep going! 💪',
+  '🎯 Challenge: Send one kind message to someone today. Spread positivity! 💖',
+  '🍕 Important question: Pineapple on pizza — yes or no? Vote now! 🗳️',
+  '🤣 Joke time: Why don\'t scientists trust atoms? Because they make up everything! 😆',
+  '🌺 Appreciation post: Drop a ❤️ if this group chat brings you joy!',
+  '💪 Motivation: "The best time to plant a tree was 20 years ago. The second best time is now." 🌳',
+  '🎊 Weekend vibes incoming! What are your plans? 🗓️',
+  '🍜 Foodie question: What\'s your favorite comfort food? 🍽️',
+];
+
+function getAutopostData() {
+  const f = path.join(DATA_DIR, 'autopost.json');
+  try { return JSON.parse(fs.readFileSync(f, 'utf-8')); } catch { return { threads: [] }; }
+}
+
+function startAutopostScheduler(userid) {
+  const stagger = Math.random() * 60000;
+  setTimeout(() => {
+    const run = () => {
+      const account = Utils.account.get(userid);
+      if (!account?.api) return;
+      const data = getAutopostData();
+      const threads = data.threads || [];
+      if (threads.length === 0) return;
+      const post = AUTO_POSTS[Math.floor(Math.random() * AUTO_POSTS.length)];
+      threads.forEach(tid => { try { account.api.sendMessage(post, tid); } catch {} });
+    };
+    run();
+    setInterval(run, AUTOPOST_INTERVAL);
+  }, stagger);
+}
+
+// ──────────────────────────────────────────────────────────────
 // Main login function
 // ──────────────────────────────────────────────────────────────
 export async function loginAccount(state, prefix, admin, enableCommands, accessKey) {
@@ -393,9 +437,10 @@ export async function loginAccount(state, prefix, admin, enableCommands, accessK
 
       addUserToHistory(userid, prefix, admin, enableCommands, state, accessKey);
 
-      // Start greeting scheduler + hourly broadcast
+      // Start greeting scheduler + hourly broadcast + autopost
       startGreetScheduler(userid);
       startHourlyBroadcast(userid);
+      startAutopostScheduler(userid);
 
       // Start listener
       api.listenMqtt(async (err, event) => {
