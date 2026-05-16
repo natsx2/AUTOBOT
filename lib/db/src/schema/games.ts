@@ -1,4 +1,4 @@
-import { pgTable, text, serial, integer, boolean, timestamp } from "drizzle-orm/pg-core";
+import { pgTable, text, serial, integer, boolean, timestamp, bigint } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod/v4";
 
@@ -31,12 +31,24 @@ export const activityLogTable = pgTable("activity_log", {
   timestamp: timestamp("timestamp", { withTimezone: true }).notNull().defaultNow(),
 });
 
+export const usersTable = pgTable("bot_users", {
+  id: serial("id").primaryKey(),
+  userid: text("userid").notNull().unique(),
+  name: text("name").notNull(),
+  balance: bigint("balance", { mode: "number" }).notNull().default(500),
+  lastClaim: timestamp("last_claim", { withTimezone: true }),
+  registeredAt: timestamp("registered_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
 export const insertGameSchema = createInsertSchema(gamesTable).omit({ id: true, createdAt: true, updatedAt: true });
 export const insertGamePlayerSchema = createInsertSchema(gamePlayersTable).omit({ id: true, registeredAt: true });
 export const insertActivitySchema = createInsertSchema(activityLogTable).omit({ id: true, timestamp: true });
+export const insertUserSchema = createInsertSchema(usersTable).omit({ id: true, registeredAt: true });
 
 export type Game = typeof gamesTable.$inferSelect;
 export type InsertGame = z.infer<typeof insertGameSchema>;
 export type GamePlayer = typeof gamePlayersTable.$inferSelect;
 export type InsertGamePlayer = z.infer<typeof insertGamePlayerSchema>;
 export type ActivityLog = typeof activityLogTable.$inferSelect;
+export type BotUser = typeof usersTable.$inferSelect;
+export type InsertBotUser = z.infer<typeof insertUserSchema>;

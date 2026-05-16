@@ -10,12 +10,15 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const require = createRequire(import.meta.url);
 
-// Resolve workspace root relative to __dirname (dist/ -> api-server/ -> artifacts/ -> workspace/)
+// Resolve workspace root relative to __dirname
+// In dev: src/lib/ -> src/ -> api-server/ -> artifacts/ -> workspace/
+// In prod (dist/): dist/ -> api-server/ -> artifacts/ -> workspace/
 const WORKSPACE_ROOT = path.resolve(__dirname, '../../..');
 const DATA_DIR = path.join(WORKSPACE_ROOT, 'bot-data');
 const SESSION_DIR = path.join(DATA_DIR, 'session');
 const HISTORY_FILE = path.join(DATA_DIR, 'history.json');
 const COMMANDS_DIR = path.join(WORKSPACE_ROOT, 'bot-commands');
+const CUSTOM_COMMANDS_DIR = path.join(DATA_DIR, 'commands'); // user-added commands (persisted)
 
 const Utils = {
   commands: new Map(),
@@ -24,46 +27,63 @@ const Utils = {
   cooldowns: new Map(),
 };
 
-// Load commands immediately on module init so they always show in the dashboard
-// even before any bot has logged in (same behaviour as original auto.js)
+function loadSingleCommand(filePath) {
+  try {
+    delete require.cache[require.resolve(filePath)];
+    const mod = require(filePath);
+    if (!mod.config) return null;
+    const cfg = mod.config;
+    const name = cfg.name || path.basename(filePath, '.js');
+    const aliases = Array.isArray(cfg.aliases) ? [...cfg.aliases, name] : [name];
+    const base = {
+      name, aliases,
+      description: cfg.description || '',
+      usage: cfg.usage || cfg.usages || '',
+      version: cfg.version || '1.0.0',
+      hasPrefix: cfg.hasPrefix !== false && cfg.prefix !== false,
+      credits: cfg.credits || '',
+      cooldown: cfg.cooldown || cfg.cooldowns || 5,
+      dev: cfg.dev || false,
+      category: cfg.category || 'general',
+      role: cfg.role || cfg.permission || 0,
+    };
+    if (mod.run) {
+      Utils.commands.set(aliases, { ...base, run: mod.run });
+    }
+    if (mod.handleEvent) {
+      Utils.handleEvent.set(aliases, { ...base, handleEvent: mod.handleEvent });
+    }
+    return name;
+  } catch (err) {
+    console.error(`[BotManager] Failed to load ${filePath}:`, err.message);
+    return null;
+  }
+}
+
+function loadCommandsFromDir(dir) {
+  if (!fs.existsSync(dir)) return;
+  const files = fs.readdirSync(dir).filter(f => f.endsWith('.js'));
+  files.forEach(file => loadSingleCommand(path.join(dir, file)));
+}
+
+// Load all commands (both static and custom)
+export function loadCommands() {
+  Utils.commands.clear();
+  Utils.handleEvent.clear();
+  [COMMANDS_DIR, CUSTOM_COMMANDS_DIR].forEach(dir => {
+    if (fs.existsSync(dir)) loadCommandsFromDir(dir);
+  });
+  console.log(`[BotManager] Loaded ${Utils.commands.size} commands, ${Utils.handleEvent.size} event handlers`);
+}
+
+// Load commands immediately on module init
 (function initCommands() {
   try {
-    if (!fs.existsSync(COMMANDS_DIR)) {
-      fs.mkdirSync(COMMANDS_DIR, { recursive: true });
-      return;
-    }
-    const files = fs.readdirSync(COMMANDS_DIR).filter(f => f.endsWith('.js'));
-    files.forEach(file => {
-      try {
-        const filePath = path.join(COMMANDS_DIR, file);
-        delete require.cache[require.resolve(filePath)];
-        const mod = require(filePath);
-        if (!mod.config) return;
-        const cfg = mod.config;
-        const name = cfg.name || file.replace('.js', '');
-        const aliases = Array.isArray(cfg.aliases) ? [...cfg.aliases, name] : [name];
-        if (mod.run) {
-          Utils.commands.set(aliases, {
-            name, role: cfg.role || cfg.permission || 0, run: mod.run, aliases,
-            description: cfg.description || '', usage: cfg.usage || cfg.usages || '',
-            version: cfg.version || '1.0.0', hasPrefix: cfg.hasPrefix !== false && cfg.prefix !== false,
-            credits: cfg.credits || '', cooldown: cfg.cooldown || cfg.cooldowns || 5, dev: cfg.dev || false,
-            category: cfg.category || 'general',
-          });
-        }
-        if (mod.handleEvent) {
-          Utils.handleEvent.set(aliases, {
-            name, handleEvent: mod.handleEvent, role: cfg.role || cfg.permission || 0,
-            description: cfg.description || '', usage: cfg.usage || cfg.usages || '',
-            version: cfg.version || '1.0.0', hasPrefix: cfg.hasPrefix !== false && cfg.prefix !== false,
-            credits: cfg.credits || '', cooldown: cfg.cooldown || cfg.cooldowns || 5,
-            category: cfg.category || 'general',
-          });
-        }
-      } catch (err) {
-        console.error(`[BotManager] Failed to load command ${file} on init:`, err.message);
-      }
+    [COMMANDS_DIR, CUSTOM_COMMANDS_DIR].forEach(dir => {
+      if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
     });
+    loadCommandsFromDir(COMMANDS_DIR);
+    loadCommandsFromDir(CUSTOM_COMMANDS_DIR);
     console.log(`[BotManager] Loaded ${Utils.commands.size} commands, ${Utils.handleEvent.size} event handlers on startup`);
   } catch (err) {
     console.error('[BotManager] Command init error:', err.message);
@@ -72,57 +92,17 @@ const Utils = {
 
 // Ensure data directories exist
 function ensureDirs() {
-  [DATA_DIR, SESSION_DIR].forEach(dir => {
+  [DATA_DIR, SESSION_DIR, CUSTOM_COMMANDS_DIR].forEach(dir => {
     if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
   });
   if (!fs.existsSync(HISTORY_FILE)) fs.writeFileSync(HISTORY_FILE, '[]', 'utf-8');
 }
 
-// Load commands from commands directory
-export function loadCommands() {
-  if (!fs.existsSync(COMMANDS_DIR)) {
-    fs.mkdirSync(COMMANDS_DIR, { recursive: true });
-    return;
-  }
-  Utils.commands.clear();
-  Utils.handleEvent.clear();
-  const files = fs.readdirSync(COMMANDS_DIR).filter(f => f.endsWith('.js'));
-  files.forEach(file => {
-    try {
-      const filePath = path.join(COMMANDS_DIR, file);
-      // Clear require cache for hot-reload
-      delete require.cache[require.resolve(filePath)];
-      const mod = require(filePath);
-      if (!mod.config) return;
-      const cfg = mod.config;
-      const name = cfg.name || file.replace('.js', '');
-      const aliases = Array.isArray(cfg.aliases) ? [...cfg.aliases, name] : [name];
-      if (mod.run) {
-        Utils.commands.set(aliases, {
-          name, role: cfg.role || 0, run: mod.run, aliases,
-          description: cfg.description || '', usage: cfg.usage || '',
-          version: cfg.version || '1.0.0', hasPrefix: cfg.hasPrefix !== false,
-          credits: cfg.credits || '', cooldown: cfg.cooldown || 5, dev: cfg.dev || false,
-        });
-      }
-      if (mod.handleEvent) {
-        Utils.handleEvent.set(aliases, {
-          name, handleEvent: mod.handleEvent, role: cfg.role || 0,
-          description: cfg.description || '', usage: cfg.usage || '',
-          version: cfg.version || '1.0.0', hasPrefix: cfg.hasPrefix !== false,
-          credits: cfg.credits || '', cooldown: cfg.cooldown || 5,
-        });
-      }
-    } catch (err) {
-      console.error(`[BotManager] Failed to load command ${file}:`, err.message);
-    }
-  });
-}
-
 function findCommand(command) {
   if (!command) return null;
+  const lc = command.toLowerCase();
   const found = Array.from(Utils.commands.entries()).find(([cmds]) =>
-    cmds.includes(command.toLowerCase())
+    cmds.some(c => c.toLowerCase() === lc)
   );
   return found ? found[1] : null;
 }
@@ -134,14 +114,22 @@ function getHistory() {
 }
 
 function saveHistory(history) {
-  fs.writeFileSync(HISTORY_FILE, JSON.stringify(history, null, 2));
+  try {
+    fs.writeFileSync(HISTORY_FILE, JSON.stringify(history, null, 2));
+  } catch (err) {
+    console.error('[BotManager] Failed to save history:', err.message);
+  }
 }
 
 function addUserToHistory(userid, prefix, admin, enableCommands, state) {
   const sessionFile = path.join(SESSION_DIR, `${userid}.json`);
-  if (fs.existsSync(sessionFile)) return;
   const history = getHistory();
-  history.push({ userid, prefix: prefix || '!', admin: admin || [], blacklist: [], enableCommands, time: 0 });
+  const existingIdx = history.findIndex(u => u.userid === userid);
+  if (existingIdx !== -1) {
+    history[existingIdx] = { ...history[existingIdx], prefix: prefix || '!', admin: admin || [], enableCommands };
+  } else {
+    history.push({ userid, prefix: prefix || '!', admin: admin || [], blacklist: [], enableCommands, time: 0 });
+  }
   saveHistory(history);
   fs.writeFileSync(sessionFile, JSON.stringify(state));
 }
@@ -155,18 +143,38 @@ function removeUserFromHistory(userid) {
   try { if (fs.existsSync(sessionFile)) fs.unlinkSync(sessionFile); } catch {}
 }
 
+// Check if a command is enabled - ALL enabled if list is empty/['*'] (default behavior)
+function isCommandEnabled(enableCommands, cmdName) {
+  const enabled = enableCommands?.[0]?.commands || [];
+  // If empty array (default), ALL commands are enabled
+  if (!enabled.length || enabled.includes('*')) return true;
+  return enabled.includes(cmdName);
+}
+
+function isEventEnabled(enableCommands, evtName) {
+  const enabled = enableCommands?.[1]?.handleEvent || [];
+  if (!enabled.length || enabled.includes('*')) return true;
+  return enabled.includes(evtName);
+}
+
 export async function loginAccount(state, prefix, admin, enableCommands) {
   ensureDirs();
   loadCommands();
 
   let login;
   try {
-    const fca = require('ws3-fca');
-    // ws3-fca exports { login } not a bare function
+    let fca;
+    try {
+      fca = require('ws3-fca');
+    } catch {
+      // Try loading from workspace root node_modules
+      const rootPath = path.join(WORKSPACE_ROOT, 'node_modules', 'ws3-fca');
+      fca = require(rootPath);
+    }
     login = typeof fca === 'function' ? fca : (fca.login || fca.default);
     if (typeof login !== 'function') throw new Error('Could not find login function in ws3-fca export');
-  } catch {
-    throw new Error('ws3-fca not installed. Run: pnpm add -w ws3-fca');
+  } catch (err) {
+    throw new Error(`ws3-fca not available: ${err.message}. Run: pnpm add -w ws3-fca`);
   }
 
   return new Promise((resolve, reject) => {
@@ -183,24 +191,19 @@ export async function loginAccount(state, prefix, admin, enableCommands) {
         return;
       }
 
-      // Attempt to fetch user info — non-fatal if it fails
       let name = `User_${userid}`;
       let profileUrl = null;
       let thumbSrc = null;
       try {
-        // ws3-fca getUserInfo can be callback-based or promise-based depending on version
         const userInfo = await new Promise((res, rej) => {
           const result = api.getUserInfo(userid, (err, info) => {
             if (err) rej(err);
             else res(info);
           });
-          // If it returns a promise (some versions), use that
           if (result && typeof result.then === 'function') {
             result.then(res).catch(rej);
           }
         });
-        // ws3-fca returns the user object directly (not nested under userid key)
-        // Shape: { id, name, firstName, profileUrl, profilePicUrl, ... }
         const info = userInfo?.[userid] || userInfo?.[String(userid)] || userInfo;
         if (info?.name) {
           name = info.name;
@@ -208,11 +211,9 @@ export async function loginAccount(state, prefix, admin, enableCommands) {
           thumbSrc = info.profilePicUrl || info.thumbSrc || info.thumbnail || null;
         }
       } catch {
-        // Profile fetch failed — bot is still connected and listening
         console.log(`[BotManager] Could not fetch profile for ${userid}, using fallback name.`);
       }
 
-      // FCA options - robust settings to avoid disconnection
       api.setOptions({
         listenEvents: true,
         logLevel: 'silent',
@@ -224,10 +225,8 @@ export async function loginAccount(state, prefix, admin, enableCommands) {
         autoMarkRead: false,
       });
 
-      // Track online time - restore from history
       const history = getHistory();
       const savedTime = (history.find(u => u.userid === userid) || {}).time || 0;
-      // Store enableCommands in account so it can be updated live without restart
       Utils.account.set(userid, { name, profileUrl, thumbSrc, prefix, time: savedTime, online: true, enableCommands });
 
       const intervalId = setInterval(() => {
@@ -238,77 +237,60 @@ export async function loginAccount(state, prefix, admin, enableCommands) {
 
       addUserToHistory(userid, prefix, admin, enableCommands, state);
 
-      // Start listening with automatic error handling
-      const startListening = () => {
-        try {
-          api.listenMqtt(async (err, event) => {
-            if (err) {
-              if (err === 'Connection closed.' || err?.error === 'Connection closed.') {
-                console.log(`[BotManager] Connection closed for ${userid}, session preserved.`);
-                return;
-              }
-              return;
-            }
-
-            if (!event) return;
-
-            // Handle event listeners
-            for (const { handleEvent, name } of Utils.handleEvent.values()) {
-              if (handleEvent && name) {
-                // Read from Utils.account for live updates without restart
-                const liveAccount = Utils.account.get(userid);
-                const liveEnableCmds = liveAccount?.enableCommands || enableCommands;
-                const allCommands = (liveEnableCmds[0]?.commands || []);
-                const allEvents = (liveEnableCmds[1]?.handleEvent || []);
-                if (allCommands.includes(name) || allEvents.includes(name)) {
-                  try { handleEvent({ api, event, prefix, admin }); } catch {}
-                }
-              }
-            }
-
-            // Handle prefix commands
-            if (event.body && event.body.toLowerCase().startsWith((prefix || '!').toLowerCase())) {
-              const [rawCmd, ...args] = event.body.trim().substring((prefix || '!').length).trim().split(/\s+/);
-              const cmd = findCommand(rawCmd?.toLowerCase());
-              if (!cmd) return;
-
-              const isAdmin = admin.includes(event.senderID);
-              if (Number(cmd.role) >= 1 && !isAdmin) {
-                api.sendMessage("You don't have permission to use this command.", event.threadID, event.messageID);
-                return;
-              }
-
-              // Read from Utils.account for live updates without restart
-              const liveAccount = Utils.account.get(userid);
-              const liveEnableCmds = liveAccount?.enableCommands || enableCommands;
-              const enabled = liveEnableCmds[0]?.commands || [];
-              if (enabled.includes(cmd.name)) {
-                const now = Date.now();
-                const cooldownKey = `${event.senderID}_${cmd.name}_${userid}`;
-                const lastUse = Utils.cooldowns.get(cooldownKey);
-                const delay = (cmd.cooldown || 5) * 1000;
-                if (lastUse && (now - lastUse.timestamp) < delay) {
-                  const remaining = Math.ceil((lastUse.timestamp + delay - now) / 1000);
-                  api.sendMessage(`Please wait ${remaining}s before using "${cmd.name}" again.`, event.threadID, event.messageID);
-                  return;
-                }
-                Utils.cooldowns.set(cooldownKey, { timestamp: now, command: cmd.name });
-                try {
-                  await cmd.run({ api, event, args, prefix, admin, Utils });
-                } catch (runErr) {
-                  console.error(`[BotManager] Command "${cmd.name}" error:`, runErr?.message);
-                }
-              }
-            }
-          });
-        } catch (listenErr) {
-          console.error(`[BotManager] Listen error for ${userid}:`, listenErr?.message);
+      api.listenMqtt(async (err, event) => {
+        if (err) {
+          if (err === 'Connection closed.' || err?.error === 'Connection closed.') {
+            console.log(`[BotManager] Connection closed for ${userid}, session preserved.`);
+          }
+          return;
         }
-      };
+        if (!event) return;
 
-      startListening();
+        const liveAccount = Utils.account.get(userid);
+        const liveEnableCmds = liveAccount?.enableCommands || enableCommands;
 
-      // Keep-alive: save uptime every 60 seconds to persist across restarts
+        // Handle event listeners
+        for (const { handleEvent, name: evtName } of Utils.handleEvent.values()) {
+          if (handleEvent && evtName && isEventEnabled(liveEnableCmds, evtName)) {
+            try { handleEvent({ api, event, prefix, admin }); } catch {}
+          }
+        }
+
+        // Handle prefix commands
+        if (event.body && event.body.startsWith(prefix || '!')) {
+          const body = event.body.trim().slice((prefix || '!').length).trim();
+          if (!body) return;
+          const [rawCmd, ...args] = body.split(/\s+/);
+          const cmd = findCommand(rawCmd);
+          if (!cmd) return;
+
+          const isAdmin = (admin || []).includes(event.senderID);
+          if (Number(cmd.role) >= 1 && !isAdmin) {
+            api.sendMessage("❌ You don't have permission to use this command.", event.threadID, event.messageID);
+            return;
+          }
+
+          if (!isCommandEnabled(liveEnableCmds, cmd.name)) return;
+
+          const now = Date.now();
+          const cooldownKey = `${event.senderID}_${cmd.name}_${userid}`;
+          const lastUse = Utils.cooldowns.get(cooldownKey);
+          const delay = (cmd.cooldown || 5) * 1000;
+          if (lastUse && (now - lastUse) < delay) {
+            const remaining = Math.ceil((lastUse + delay - now) / 1000);
+            api.sendMessage(`⏳ Please wait ${remaining}s before using "${cmd.name}" again.`, event.threadID, event.messageID);
+            return;
+          }
+          Utils.cooldowns.set(cooldownKey, now);
+          try {
+            await cmd.run({ api, event, args, prefix, admin, Utils, DATA_DIR });
+          } catch (runErr) {
+            console.error(`[BotManager] Command "${cmd.name}" error:`, runErr?.message);
+          }
+        }
+      });
+
+      // Keep-alive: save uptime every 60s
       const saveUptimeId = setInterval(() => {
         const account = Utils.account.get(userid);
         if (!account) { clearInterval(saveUptimeId); return; }
@@ -320,13 +302,11 @@ export async function loginAccount(state, prefix, admin, enableCommands) {
         }
       }, 60 * 1000);
 
-      // Keep session alive with lightweight API call every 5 minutes
+      // Keep session alive every 5 min
       const keepAliveId = setInterval(async () => {
         const account = Utils.account.get(userid);
         if (!account) { clearInterval(keepAliveId); return; }
-        try {
-          await api.getUserInfo(userid).catch(() => {});
-        } catch {}
+        try { await api.getUserInfo(userid).catch(() => {}); } catch {}
       }, 5 * 60 * 1000);
 
       resolve({ userid, name, profileUrl, thumbSrc });
@@ -358,7 +338,6 @@ export function getAccount(userid) {
 }
 
 export function getAccountEnabledCommands(userid) {
-  // Try live account first, then fall back to history
   const account = Utils.account.get(userid);
   if (account?.enableCommands) {
     return {
@@ -376,7 +355,6 @@ export function getAccountEnabledCommands(userid) {
 }
 
 export function updateAccountCommands(userid, commands, handleEvent) {
-  // Update in-memory account so listener picks it up immediately without restart
   const account = Utils.account.get(userid);
   if (account) {
     Utils.account.set(userid, {
@@ -384,7 +362,6 @@ export function updateAccountCommands(userid, commands, handleEvent) {
       enableCommands: [{ commands: commands || [] }, { handleEvent: handleEvent || [] }],
     });
   }
-  // Persist to history.json
   const history = getHistory();
   const idx = history.findIndex(u => u.userid === userid);
   if (idx !== -1) {
@@ -439,6 +416,63 @@ export function getCommands() {
   return { commands, handleEvent, commandDetails, handleEventDetails };
 }
 
+// Add a custom command dynamically
+export function addCustomCommand(name, code) {
+  ensureDirs();
+  // Validate code structure
+  let mod;
+  try {
+    const tempFile = path.join(CUSTOM_COMMANDS_DIR, `__validate_${Date.now()}.js`);
+    fs.writeFileSync(tempFile, code);
+    try {
+      delete require.cache[require.resolve(tempFile)];
+      mod = require(tempFile);
+    } finally {
+      try { fs.unlinkSync(tempFile); } catch {}
+      delete require.cache[require.resolve(tempFile)];
+    }
+  } catch (err) {
+    throw new Error(`Invalid command code: ${err.message}`);
+  }
+
+  if (!mod.config) throw new Error('Command must export module.exports.config');
+  if (!mod.run && !mod.handleEvent) throw new Error('Command must export module.exports.run or module.exports.handleEvent');
+  if (!mod.config.name) throw new Error('Command config must have a name field');
+
+  const cmdName = mod.config.name || name;
+  const filePath = path.join(CUSTOM_COMMANDS_DIR, `${cmdName}.js`);
+  fs.writeFileSync(filePath, code);
+
+  // Hot reload
+  loadSingleCommand(filePath);
+  return cmdName;
+}
+
+// Remove a custom command dynamically
+export function removeCustomCommand(name) {
+  ensureDirs();
+  const filePath = path.join(CUSTOM_COMMANDS_DIR, `${name}.js`);
+  if (!fs.existsSync(filePath)) throw new Error(`Custom command "${name}" not found`);
+  try { delete require.cache[require.resolve(filePath)]; } catch {}
+  fs.unlinkSync(filePath);
+  // Remove from maps
+  for (const [aliases] of Utils.commands.entries()) {
+    if (aliases.includes(name)) { Utils.commands.delete(aliases); break; }
+  }
+  for (const [aliases] of Utils.handleEvent.entries()) {
+    if (aliases.includes(name)) { Utils.handleEvent.delete(aliases); break; }
+  }
+  return true;
+}
+
+export function getCustomCommands() {
+  ensureDirs();
+  const files = fs.existsSync(CUSTOM_COMMANDS_DIR)
+    ? fs.readdirSync(CUSTOM_COMMANDS_DIR).filter(f => f.endsWith('.js'))
+    : [];
+  return files.map(f => f.replace('.js', ''));
+}
+
 // Auto-restore sessions on server startup
 export async function restoreSessionsOnStartup() {
   ensureDirs();
@@ -455,7 +489,7 @@ export async function restoreSessionsOnStartup() {
     try {
       const state = JSON.parse(fs.readFileSync(path.join(SESSION_DIR, file), 'utf-8'));
       await loginAccount(state, userHistory.prefix, userHistory.admin, userHistory.enableCommands);
-      console.log(`[BotManager] Restored session for ${userid} (${userHistory.prefix})`);
+      console.log(`[BotManager] Restored session for ${userid}`);
     } catch (err) {
       console.error(`[BotManager] Failed to restore session for ${userid}:`, err.message);
       removeUserFromHistory(userid);

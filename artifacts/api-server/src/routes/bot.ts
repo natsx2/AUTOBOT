@@ -1,11 +1,22 @@
 import { Router, type IRouter } from "express";
-import { db, gamesTable, gamePlayersTable, activityLogTable } from "@workspace/db";
-import { eq, desc, count, and } from "drizzle-orm";
+import { db, gamesTable, gamePlayersTable, activityLogTable, usersTable } from "@workspace/db";
+import { eq, desc, count, and, sql } from "drizzle-orm";
 import { logger } from "../lib/logger";
+import path from "path";
+import fs from "fs";
 
 const router: IRouter = Router();
 
 const startedAt = new Date().toISOString();
+
+// Economy data helpers (file-based for command compatibility)
+const WORKSPACE_ROOT = path.resolve(process.cwd());
+const BOT_DATA_DIR = process.env.BOT_DATA_DIR || path.join(WORKSPACE_ROOT, "bot-data");
+
+function getEconomy() {
+  const file = path.join(BOT_DATA_DIR, "economy.json");
+  try { return JSON.parse(fs.readFileSync(file, "utf-8")); } catch { return { users: {} }; }
+}
 
 function logActivity(type: string, message: string, userid?: string) {
   db.insert(activityLogTable)
@@ -41,6 +52,7 @@ router.post("/bot/login", async (req, res): Promise<void> => {
       res.status(400).json({ success: false, message: "Account already logged in", error: false });
       return;
     }
+    // Default: empty commands = all commands enabled
     await botManager.loginAccount(state, prefix || "!", admin ? [admin] : [], commands || [{ commands: [] }, { handleEvent: [] }]);
     logActivity("login", `Bot account ${cUser.value} logged in`, cUser.value);
     res.json({ success: true, message: "Login successful", error: false });
@@ -109,6 +121,55 @@ router.get("/bot/commands", async (_req, res): Promise<void> => {
   }
 });
 
+// Reload commands (called by addcmd/removecmd bot commands)
+router.post("/bot/commands/reload", async (_req, res): Promise<void> => {
+  try {
+    const botManager = await import("../lib/botManager.js");
+    botManager.loadCommands();
+    res.json({ success: true, message: "Commands reloaded" });
+  } catch (err: unknown) {
+    res.status(500).json({ error: String(err) });
+  }
+});
+
+// Add custom command via dashboard
+router.post("/bot/commands/custom", async (req, res): Promise<void> => {
+  const { code } = req.body as { code: string };
+  if (!code) { res.status(400).json({ error: "code is required" }); return; }
+  try {
+    const botManager = await import("../lib/botManager.js");
+    const name = botManager.addCustomCommand("", code);
+    logActivity("cmd_add", `Custom command "${name}" added`);
+    res.json({ success: true, name });
+  } catch (err: unknown) {
+    res.status(400).json({ error: String(err) });
+  }
+});
+
+// Remove custom command via dashboard
+router.delete("/bot/commands/custom/:name", async (req, res): Promise<void> => {
+  const name = Array.isArray(req.params.name) ? req.params.name[0] : req.params.name;
+  try {
+    const botManager = await import("../lib/botManager.js");
+    botManager.removeCustomCommand(name);
+    logActivity("cmd_remove", `Custom command "${name}" removed`);
+    res.json({ success: true });
+  } catch (err: unknown) {
+    res.status(404).json({ error: String(err) });
+  }
+});
+
+// Get custom commands list
+router.get("/bot/commands/custom", async (_req, res): Promise<void> => {
+  try {
+    const botManager = await import("../lib/botManager.js");
+    const list = botManager.getCustomCommands();
+    res.json(list);
+  } catch {
+    res.json([]);
+  }
+});
+
 router.get("/bot/stats", async (_req, res): Promise<void> => {
   const now = Date.now();
   const started = new Date(startedAt).getTime();
@@ -118,15 +179,18 @@ router.get("/bot/stats", async (_req, res): Promise<void> => {
     const accounts = botManager.getAccounts();
     const { commands, handleEvent } = botManager.getCommands();
     const [gamesCount] = await db.select({ count: count() }).from(gamesTable);
+    const eco = getEconomy();
+    const userCount = Object.keys(eco.users || {}).length;
     res.json({
       uptime,
       accountsOnline: accounts.length,
       totalCommands: commands.length + handleEvent.length,
       totalGames: Number(gamesCount?.count ?? 0),
+      totalUsers: userCount,
       startedAt,
     });
   } catch {
-    res.json({ uptime, accountsOnline: 0, totalCommands: 0, totalGames: 0, startedAt });
+    res.json({ uptime, accountsOnline: 0, totalCommands: 0, totalGames: 0, totalUsers: 0, startedAt });
   }
 });
 
@@ -139,6 +203,28 @@ router.get("/bot/activity", async (_req, res): Promise<void> => {
   res.json(rows.map((r) => ({ ...r, timestamp: r.timestamp.toISOString() })));
 });
 
+// Economy routes
+router.get("/economy/users", async (_req, res): Promise<void> => {
+  const eco = getEconomy();
+  const users = Object.entries(eco.users || {}).map(([id, u]: [string, any]) => ({
+    userid: id,
+    name: u.name,
+    balance: u.balance,
+    lastClaim: u.lastClaim,
+    registeredAt: u.registeredAt,
+  })).sort((a, b) => b.balance - a.balance);
+  res.json(users);
+});
+
+router.get("/economy/users/:userid", async (req, res): Promise<void> => {
+  const userid = Array.isArray(req.params.userid) ? req.params.userid[0] : req.params.userid;
+  const eco = getEconomy();
+  const user = eco.users?.[userid];
+  if (!user) { res.status(404).json({ error: "User not registered" }); return; }
+  res.json({ userid, ...user });
+});
+
+// Games routes
 router.get("/games", async (_req, res): Promise<void> => {
   const games = await db.select().from(gamesTable).orderBy(desc(gamesTable.createdAt));
   const result = await Promise.all(
@@ -158,11 +244,7 @@ router.get("/games", async (_req, res): Promise<void> => {
 
 router.post("/games", async (req, res): Promise<void> => {
   const { name, description, reward, maxPlayers, status } = req.body as {
-    name: string;
-    description: string;
-    reward: string;
-    maxPlayers?: number;
-    status?: string;
+    name: string; description: string; reward: string; maxPlayers?: number; status?: string;
   };
   if (!name || !description || !reward) {
     res.status(400).json({ error: "name, description, and reward are required" });
@@ -180,28 +262,17 @@ router.get("/games/:id", async (req, res): Promise<void> => {
   const raw = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
   const id = parseInt(raw, 10);
   const [game] = await db.select().from(gamesTable).where(eq(gamesTable.id, id));
-  if (!game) {
-    res.status(404).json({ error: "Game not found" });
-    return;
-  }
+  if (!game) { res.status(404).json({ error: "Game not found" }); return; }
   const [regCount] = await db.select({ count: count() }).from(gamePlayersTable).where(eq(gamePlayersTable.gameId, id));
   const [claimCount] = await db.select({ count: count() }).from(gamePlayersTable).where(and(eq(gamePlayersTable.gameId, id), eq(gamePlayersTable.claimed, true)));
-  res.json({
-    ...game,
-    createdAt: game.createdAt.toISOString(),
-    registeredCount: Number(regCount?.count ?? 0),
-    claimedCount: Number(claimCount?.count ?? 0),
-  });
+  res.json({ ...game, createdAt: game.createdAt.toISOString(), registeredCount: Number(regCount?.count ?? 0), claimedCount: Number(claimCount?.count ?? 0) });
 });
 
 router.delete("/games/:id", async (req, res): Promise<void> => {
   const raw = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
   const id = parseInt(raw, 10);
   const [deleted] = await db.delete(gamesTable).where(eq(gamesTable.id, id)).returning();
-  if (!deleted) {
-    res.status(404).json({ error: "Game not found" });
-    return;
-  }
+  if (!deleted) { res.status(404).json({ error: "Game not found" }); return; }
   logActivity("game_deleted", `Game "${deleted.name}" deleted`);
   res.json({ success: true, message: `Game "${deleted.name}" deleted` });
 });
@@ -210,29 +281,17 @@ router.post("/games/:id/register", async (req, res): Promise<void> => {
   const raw = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
   const id = parseInt(raw, 10);
   const { playerId, playerName } = req.body as { playerId: string; playerName: string };
-  if (!playerId || !playerName) {
-    res.status(400).json({ error: "playerId and playerName are required" });
-    return;
-  }
+  if (!playerId || !playerName) { res.status(400).json({ error: "playerId and playerName are required" }); return; }
   const [game] = await db.select().from(gamesTable).where(eq(gamesTable.id, id));
-  if (!game) {
-    res.status(404).json({ error: "Game not found" });
-    return;
-  }
-  const [existing] = await db
-    .select()
-    .from(gamePlayersTable)
-    .where(and(eq(gamePlayersTable.gameId, id), eq(gamePlayersTable.playerId, playerId)));
+  if (!game) { res.status(404).json({ error: "Game not found" }); return; }
+  const [existing] = await db.select().from(gamePlayersTable).where(and(eq(gamePlayersTable.gameId, id), eq(gamePlayersTable.playerId, playerId)));
   if (existing) {
     res.json({ ...existing, registeredAt: existing.registeredAt.toISOString(), claimedAt: existing.claimedAt?.toISOString() ?? null });
     return;
   }
   if (game.maxPlayers) {
     const [cnt] = await db.select({ count: count() }).from(gamePlayersTable).where(eq(gamePlayersTable.gameId, id));
-    if (Number(cnt?.count ?? 0) >= game.maxPlayers) {
-      res.status(400).json({ error: "Game is full" });
-      return;
-    }
+    if (Number(cnt?.count ?? 0) >= game.maxPlayers) { res.status(400).json({ error: "Game is full" }); return; }
   }
   const [player] = await db.insert(gamePlayersTable).values({ gameId: id, playerId, playerName }).returning();
   logActivity("game_register", `Player ${playerName} registered for game "${game.name}"`);
@@ -243,52 +302,22 @@ router.post("/games/:id/claim", async (req, res): Promise<void> => {
   const raw = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
   const id = parseInt(raw, 10);
   const { playerId, playerName } = req.body as { playerId: string; playerName?: string };
-  if (!playerId) {
-    res.status(400).json({ error: "playerId is required" });
-    return;
-  }
+  if (!playerId) { res.status(400).json({ error: "playerId is required" }); return; }
   const [game] = await db.select().from(gamesTable).where(eq(gamesTable.id, id));
-  if (!game) {
-    res.status(404).json({ error: "Game not found" });
-    return;
-  }
-  const [registration] = await db
-    .select()
-    .from(gamePlayersTable)
-    .where(and(eq(gamePlayersTable.gameId, id), eq(gamePlayersTable.playerId, playerId)));
-  if (!registration) {
-    res.status(404).json({ error: "Player not registered for this game" });
-    return;
-  }
-  if (registration.claimed) {
-    res.status(400).json({ error: "Reward already claimed" });
-    return;
-  }
+  if (!game) { res.status(404).json({ error: "Game not found" }); return; }
+  const [registration] = await db.select().from(gamePlayersTable).where(and(eq(gamePlayersTable.gameId, id), eq(gamePlayersTable.playerId, playerId)));
+  if (!registration) { res.status(404).json({ error: "Player not registered for this game" }); return; }
+  if (registration.claimed) { res.status(400).json({ error: "Reward already claimed" }); return; }
   const now = new Date();
-  const [updated] = await db
-    .update(gamePlayersTable)
-    .set({ claimed: true, claimedAt: now })
-    .where(eq(gamePlayersTable.id, registration.id))
-    .returning();
+  const [updated] = await db.update(gamePlayersTable).set({ claimed: true, claimedAt: now }).where(eq(gamePlayersTable.id, registration.id)).returning();
   logActivity("game_claim", `Player ${playerName || playerId} claimed reward for "${game.name}"`);
-  res.json({
-    id: updated.id,
-    gameId: id,
-    playerId: updated.playerId,
-    playerName: updated.playerName,
-    claimedAt: now.toISOString(),
-    reward: game.reward,
-  });
+  res.json({ id: updated.id, gameId: id, playerId: updated.playerId, playerName: updated.playerName, claimedAt: now.toISOString(), reward: game.reward });
 });
 
 router.get("/games/:id/players", async (req, res): Promise<void> => {
   const raw = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
   const id = parseInt(raw, 10);
-  const players = await db
-    .select()
-    .from(gamePlayersTable)
-    .where(eq(gamePlayersTable.gameId, id))
-    .orderBy(desc(gamePlayersTable.registeredAt));
+  const players = await db.select().from(gamePlayersTable).where(eq(gamePlayersTable.gameId, id)).orderBy(desc(gamePlayersTable.registeredAt));
   res.json(players.map((p) => ({ ...p, registeredAt: p.registeredAt.toISOString(), claimedAt: p.claimedAt?.toISOString() ?? null })));
 });
 

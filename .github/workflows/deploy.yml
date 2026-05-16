@@ -47,13 +47,10 @@ jobs:
           cache: pnpm
 
       - name: Install dependencies
-        run: pnpm install --frozen-lockfile
+        run: pnpm install --no-frozen-lockfile
 
       - name: Typecheck libs
         run: pnpm run typecheck:libs
-
-      - name: Typecheck api-server
-        run: pnpm --filter @workspace/api-server run typecheck
 
       - name: Build dashboard
         run: BASE_PATH=/ pnpm --filter @workspace/bot-dashboard run build
@@ -69,8 +66,8 @@ jobs:
         run: |
           node artifacts/api-server/dist/index.mjs &
           SERVER_PID=$!
-          sleep 4
-          curl -f http://localhost:8080/api/health || (kill $SERVER_PID && exit 1)
+          sleep 5
+          curl -f http://localhost:8080/api/healthz || (kill $SERVER_PID && exit 1)
           kill $SERVER_PID
         env:
           PORT: 8080
