@@ -199,11 +199,13 @@ export async function loginAccount(state, prefix, admin, enableCommands) {
             result.then(res).catch(rej);
           }
         });
-        const info = userInfo?.[userid] || userInfo?.[String(userid)];
+        // ws3-fca returns the user object directly (not nested under userid key)
+        // Shape: { id, name, firstName, profileUrl, profilePicUrl, ... }
+        const info = userInfo?.[userid] || userInfo?.[String(userid)] || userInfo;
         if (info?.name) {
           name = info.name;
           profileUrl = info.profileUrl || info.uri || null;
-          thumbSrc = info.thumbSrc || info.thumbnail || null;
+          thumbSrc = info.profilePicUrl || info.thumbSrc || info.thumbnail || null;
         }
       } catch {
         // Profile fetch failed — bot is still connected and listening
