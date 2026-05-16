@@ -17,6 +17,7 @@ async function apiFetch(path, options = {}) {
 export const QK = {
   health: () => ["/api/healthz"],
   accounts: () => ["/api/bot/accounts"],
+  accountCommands: (userid) => ["/api/bot/accounts", userid, "commands"],
   stats: () => ["/api/bot/stats"],
   commands: () => ["/api/bot/commands"],
   activity: () => ["/api/bot/activity"],
@@ -78,6 +79,25 @@ export function useBotLogout() {
   return useMutation({
     mutationFn: ({ userid }) =>
       apiFetch(`/api/bot/accounts/${userid}`, { method: "DELETE" }),
+  });
+}
+
+export function useGetAccountCommands(userid, opts = {}) {
+  return useQuery({
+    queryKey: QK.accountCommands(userid),
+    queryFn: () => apiFetch(`/api/bot/accounts/${userid}/commands`),
+    enabled: !!userid,
+    ...opts.query,
+  });
+}
+
+export function useUpdateAccountCommands() {
+  return useMutation({
+    mutationFn: ({ userid, commands, handleEvent }) =>
+      apiFetch(`/api/bot/accounts/${userid}/commands`, {
+        method: "PUT",
+        body: JSON.stringify({ commands, handleEvent }),
+      }),
   });
 }
 

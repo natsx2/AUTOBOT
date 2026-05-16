@@ -51,6 +51,30 @@ router.post("/bot/login", async (req, res): Promise<void> => {
   }
 });
 
+router.get("/bot/accounts/:userid/commands", async (req, res): Promise<void> => {
+  const userid = Array.isArray(req.params.userid) ? req.params.userid[0] : req.params.userid;
+  try {
+    const botManager = await import("../lib/botManager.js");
+    const result = botManager.getAccountEnabledCommands(userid);
+    res.json(result);
+  } catch (err: unknown) {
+    res.status(500).json({ error: String(err) });
+  }
+});
+
+router.put("/bot/accounts/:userid/commands", async (req, res): Promise<void> => {
+  const userid = Array.isArray(req.params.userid) ? req.params.userid[0] : req.params.userid;
+  const { commands, handleEvent } = req.body as { commands: string[]; handleEvent: string[] };
+  try {
+    const botManager = await import("../lib/botManager.js");
+    botManager.updateAccountCommands(userid, commands || [], handleEvent || []);
+    logActivity("config", `Commands updated for account ${userid}`, userid);
+    res.json({ success: true });
+  } catch (err: unknown) {
+    res.status(500).json({ error: String(err) });
+  }
+});
+
 router.delete("/bot/accounts/:userid", async (req, res): Promise<void> => {
   const userid = Array.isArray(req.params.userid) ? req.params.userid[0] : req.params.userid;
   try {

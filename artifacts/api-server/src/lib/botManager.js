@@ -161,9 +161,12 @@ export async function loginAccount(state, prefix, admin, enableCommands) {
 
   let login;
   try {
-    login = require('ws3-fca');
+    const fca = require('ws3-fca');
+    // ws3-fca exports { login } not a bare function
+    login = typeof fca === 'function' ? fca : (fca.login || fca.default);
+    if (typeof login !== 'function') throw new Error('Could not find login function in ws3-fca export');
   } catch {
-    throw new Error('ws3-fca not installed. Install it in the bot-data folder or project root.');
+    throw new Error('ws3-fca not installed. Run: pnpm add -w ws3-fca');
   }
 
   return new Promise((resolve, reject) => {
@@ -180,19 +183,32 @@ export async function loginAccount(state, prefix, admin, enableCommands) {
         return;
       }
 
-      // Validate account is not locked/suspended
-      let userInfo;
+      // Attempt to fetch user info — non-fatal if it fails
+      let name = `User_${userid}`;
+      let profileUrl = null;
+      let thumbSrc = null;
       try {
-        userInfo = await api.getUserInfo(userid);
-        if (!userInfo || !userInfo[userid]?.name) {
-          throw new Error('Account appears to be suspended or locked. Please check your account status.');
+        // ws3-fca getUserInfo can be callback-based or promise-based depending on version
+        const userInfo = await new Promise((res, rej) => {
+          const result = api.getUserInfo(userid, (err, info) => {
+            if (err) rej(err);
+            else res(info);
+          });
+          // If it returns a promise (some versions), use that
+          if (result && typeof result.then === 'function') {
+            result.then(res).catch(rej);
+          }
+        });
+        const info = userInfo?.[userid] || userInfo?.[String(userid)];
+        if (info?.name) {
+          name = info.name;
+          profileUrl = info.profileUrl || info.uri || null;
+          thumbSrc = info.thumbSrc || info.thumbnail || null;
         }
-      } catch (err) {
-        reject(err);
-        return;
+      } catch {
+        // Profile fetch failed — bot is still connected and listening
+        console.log(`[BotManager] Could not fetch profile for ${userid}, using fallback name.`);
       }
-
-      const { name, profileUrl, thumbSrc } = userInfo[userid];
 
       // FCA options - robust settings to avoid disconnection
       api.setOptions({
@@ -209,7 +225,8 @@ export async function loginAccount(state, prefix, admin, enableCommands) {
       // Track online time - restore from history
       const history = getHistory();
       const savedTime = (history.find(u => u.userid === userid) || {}).time || 0;
-      Utils.account.set(userid, { name, profileUrl, thumbSrc, prefix, time: savedTime, online: true });
+      // Store enableCommands in account so it can be updated live without restart
+      Utils.account.set(userid, { name, profileUrl, thumbSrc, prefix, time: savedTime, online: true, enableCommands });
 
       const intervalId = setInterval(() => {
         const account = Utils.account.get(userid);
@@ -236,8 +253,11 @@ export async function loginAccount(state, prefix, admin, enableCommands) {
             // Handle event listeners
             for (const { handleEvent, name } of Utils.handleEvent.values()) {
               if (handleEvent && name) {
-                const allCommands = (enableCommands[0]?.commands || []);
-                const allEvents = (enableCommands[1]?.handleEvent || []);
+                // Read from Utils.account for live updates without restart
+                const liveAccount = Utils.account.get(userid);
+                const liveEnableCmds = liveAccount?.enableCommands || enableCommands;
+                const allCommands = (liveEnableCmds[0]?.commands || []);
+                const allEvents = (liveEnableCmds[1]?.handleEvent || []);
                 if (allCommands.includes(name) || allEvents.includes(name)) {
                   try { handleEvent({ api, event, prefix, admin }); } catch {}
                 }
@@ -256,7 +276,10 @@ export async function loginAccount(state, prefix, admin, enableCommands) {
                 return;
               }
 
-              const enabled = enableCommands[0]?.commands || [];
+              // Read from Utils.account for live updates without restart
+              const liveAccount = Utils.account.get(userid);
+              const liveEnableCmds = liveAccount?.enableCommands || enableCommands;
+              const enabled = liveEnableCmds[0]?.commands || [];
               if (enabled.includes(cmd.name)) {
                 const now = Date.now();
                 const cooldownKey = `${event.senderID}_${cmd.name}_${userid}`;
@@ -330,6 +353,42 @@ export function getAccounts() {
 
 export function getAccount(userid) {
   return Utils.account.get(userid) || null;
+}
+
+export function getAccountEnabledCommands(userid) {
+  // Try live account first, then fall back to history
+  const account = Utils.account.get(userid);
+  if (account?.enableCommands) {
+    return {
+      commands: account.enableCommands[0]?.commands || [],
+      handleEvent: account.enableCommands[1]?.handleEvent || [],
+    };
+  }
+  const history = getHistory();
+  const user = history.find(u => u.userid === userid);
+  if (!user) return { commands: [], handleEvent: [] };
+  return {
+    commands: user.enableCommands?.[0]?.commands || [],
+    handleEvent: user.enableCommands?.[1]?.handleEvent || [],
+  };
+}
+
+export function updateAccountCommands(userid, commands, handleEvent) {
+  // Update in-memory account so listener picks it up immediately without restart
+  const account = Utils.account.get(userid);
+  if (account) {
+    Utils.account.set(userid, {
+      ...account,
+      enableCommands: [{ commands: commands || [] }, { handleEvent: handleEvent || [] }],
+    });
+  }
+  // Persist to history.json
+  const history = getHistory();
+  const idx = history.findIndex(u => u.userid === userid);
+  if (idx !== -1) {
+    history[idx].enableCommands = [{ commands: commands || [] }, { handleEvent: handleEvent || [] }];
+    saveHistory(history);
+  }
 }
 
 export function getCommands() {

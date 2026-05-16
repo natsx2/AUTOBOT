@@ -59,7 +59,8 @@ export default function Login() {
         state: parsedState,
         prefix,
         admin: admin || undefined,
-        commands: selectedCmds.map((c) => ({ name: c })),
+        // Correct format: [{commands:[...]},{handleEvent:[...]}]
+        commands: [{ commands: selectedCmds }, { handleEvent: [] }],
       },
     }, {
       onSuccess: (res) => {
