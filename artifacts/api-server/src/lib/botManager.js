@@ -190,6 +190,156 @@ function startGreetScheduler(userid) {
 }
 
 // ──────────────────────────────────────────────────────────────
+// Thread tracking (persist all seen GC threads)
+// ──────────────────────────────────────────────────────────────
+const THREADS_FILE = () => path.join(DATA_DIR, 'threads.json');
+
+function getTrackedThreads() {
+  try { return JSON.parse(fs.readFileSync(THREADS_FILE(), 'utf-8')); } catch { return []; }
+}
+
+function saveThread(threadID) {
+  if (!threadID) return;
+  const threads = getTrackedThreads();
+  if (!threads.includes(threadID)) {
+    threads.push(threadID);
+    try { fs.writeFileSync(THREADS_FILE(), JSON.stringify(threads)); } catch {}
+  }
+}
+
+// ──────────────────────────────────────────────────────────────
+// Lottery helpers
+// ──────────────────────────────────────────────────────────────
+function getLottery() {
+  try { return JSON.parse(fs.readFileSync(path.join(DATA_DIR, 'lottery.json'), 'utf-8')); }
+  catch { return { pot: 0, jackpot: 0, tickets: {}, lastDraw: null }; }
+}
+function saveLottery(data) {
+  try { fs.writeFileSync(path.join(DATA_DIR, 'lottery.json'), JSON.stringify(data, null, 2)); } catch {}
+}
+function getEconomyBM() {
+  try { return JSON.parse(fs.readFileSync(path.join(DATA_DIR, 'economy.json'), 'utf-8')); }
+  catch { return { users: {} }; }
+}
+function saveEconomyBM(data) {
+  try { fs.writeFileSync(path.join(DATA_DIR, 'economy.json'), JSON.stringify(data, null, 2)); } catch {}
+}
+
+// ──────────────────────────────────────────────────────────────
+// Hourly broadcast + lottery draw
+// ──────────────────────────────────────────────────────────────
+function drawLottery(api, threads) {
+  const lotto = getLottery();
+  const entries = Object.entries(lotto.tickets || {});
+  if (entries.length === 0 || lotto.pot === 0) return null;
+
+  // Build weighted pool
+  const pool = [];
+  for (const [uid, data] of entries) {
+    for (let i = 0; i < data.count; i++) pool.push(uid);
+  }
+  const winnerUID = pool[Math.floor(Math.random() * pool.length)];
+  const winner = lotto.tickets[winnerUID];
+  const prize = Math.floor(lotto.pot * 0.70);
+  const jackpotAdd = lotto.pot - prize;
+
+  // Pay winner
+  const eco = getEconomyBM();
+  if (eco.users[winnerUID]) {
+    eco.users[winnerUID].balance += prize;
+    saveEconomyBM(eco);
+  }
+
+  const prevPot = lotto.pot;
+  lotto.jackpot = (lotto.jackpot || 0) + jackpotAdd;
+  lotto.pot = 0;
+  lotto.tickets = {};
+  lotto.lastDraw = new Date().toISOString();
+  saveLottery(lotto);
+
+  const winnerName = winner.name || `User_${winnerUID}`;
+  const msg = [
+    '🎰 ╔══ LOTTERY DRAW ══╗',
+    `🎫 Pot: ${prevPot.toLocaleString()} coins`,
+    '',
+    `🏆 Winner: ${winnerName}`,
+    `💰 Prize: ${prize.toLocaleString()} coins (70%)`,
+    `🎁 Jackpot grew by: ${jackpotAdd.toLocaleString()} coins`,
+    `💎 Total Jackpot: ${lotto.jackpot.toLocaleString()} coins`,
+    '',
+    '⏰ Next round starts now!',
+    '🎟 Buy tickets: !lottery <count>',
+  ].join('\n');
+
+  threads.forEach(tid => { try { api.sendMessage(msg, tid); } catch {} });
+  return { winnerName, prize };
+}
+
+function buildBroadcastMsg(prefix) {
+  const eco = getEconomyBM();
+  const lotto = getLottery();
+  const users = Object.values(eco.users || {})
+    .sort((a, b) => b.balance - a.balance)
+    .slice(0, 3);
+
+  const medals = ['🥇', '🥈', '🥉'];
+  const top3 = users.length
+    ? users.map((u, i) => `${medals[i]} ${u.name} — ${u.balance.toLocaleString()} coins`).join('\n')
+    : 'No players yet';
+
+  const lines = [
+    '🎮 ╔══ HOURLY UPDATE ══╗',
+    '',
+    '🏆 Top 3 Leaderboard:',
+    top3,
+    '',
+    `🎫 Lottery Pot: ${lotto.pot.toLocaleString()} coins`,
+    `💎 Jackpot: ${lotto.jackpot.toLocaleString()} coins`,
+    '',
+    '🎲 Play now & win big!',
+    `${prefix}slots  ${prefix}flip  ${prefix}dice  ${prefix}rps`,
+    `${prefix}wheel  ${prefix}blackjack  ${prefix}steal  ${prefix}lottery`,
+    '',
+    `📋 ${prefix}help for all commands`,
+  ];
+  return lines.join('\n');
+}
+
+function startHourlyBroadcast(userid) {
+  // Stagger first broadcast so multiple bots don't all fire at once
+  const INTERVAL = 60 * 60 * 1000; // 1 hour
+  const stagger = Math.random() * 30000; // 0-30s stagger
+
+  setTimeout(() => {
+    const run = () => {
+      const account = Utils.account.get(userid);
+      if (!account?.api) return;
+
+      const threads = getTrackedThreads();
+      if (threads.length === 0) return;
+
+      // Draw lottery if there's a pot
+      const lotto = getLottery();
+      const hasTickets = Object.keys(lotto.tickets || {}).length > 0;
+      if (hasTickets && lotto.pot > 0) {
+        drawLottery(account.api, threads);
+        // Small delay before broadcasting so lottery message lands first
+        setTimeout(() => {
+          const msg = buildBroadcastMsg(account.prefix || '!');
+          threads.forEach(tid => { try { account.api.sendMessage(msg, tid); } catch {} });
+        }, 3000);
+      } else {
+        const msg = buildBroadcastMsg(account.prefix || '!');
+        threads.forEach(tid => { try { account.api.sendMessage(msg, tid); } catch {} });
+      }
+    };
+
+    run();
+    setInterval(run, INTERVAL);
+  }, stagger);
+}
+
+// ──────────────────────────────────────────────────────────────
 // Main login function
 // ──────────────────────────────────────────────────────────────
 export async function loginAccount(state, prefix, admin, enableCommands, accessKey) {
@@ -243,8 +393,9 @@ export async function loginAccount(state, prefix, admin, enableCommands, accessK
 
       addUserToHistory(userid, prefix, admin, enableCommands, state, accessKey);
 
-      // Start greeting scheduler
+      // Start greeting scheduler + hourly broadcast
       startGreetScheduler(userid);
+      startHourlyBroadcast(userid);
 
       // Start listener
       api.listenMqtt(async (err, event) => {
@@ -259,9 +410,10 @@ export async function loginAccount(state, prefix, admin, enableCommands, accessK
         const liveAccount = Utils.account.get(userid);
         const liveEnableCmds = liveAccount?.enableCommands || enableCommands;
 
-        // Track group thread IDs for auto-greetings
+        // Track group thread IDs for auto-greetings + hourly broadcast
         if (event.threadID && event.senderID !== event.threadID) {
           liveAccount?.threadSet?.add(event.threadID);
+          saveThread(event.threadID);
         }
 
         // Run all event handlers
