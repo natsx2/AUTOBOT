@@ -1,35 +1,20 @@
 import { useState, useEffect } from "react";
 import { Link, useLocation } from "wouter";
 import { useTheme } from "./theme-provider";
-import { 
-  Bot, 
-  Terminal, 
-  Gamepad2, 
-  Activity, 
-  LogIn, 
-  Users, 
-  Moon, 
-  Sun, 
-  Menu, 
-  X, 
-  Clock, 
-  Wifi 
-} from "lucide-react";
-import { useHealthCheck } from "@workspace/api-client-react";
+import { Bot, Terminal, Gamepad2, Activity, LogIn, Users, Moon, Sun, Menu, X, Clock, Wifi } from "lucide-react";
+import { useHealthCheck } from "@/api/hooks";
 
-export function Layout({ children }: { children: React.ReactNode }) {
+export function Layout({ children }) {
   const [isSidebarOpen, setSidebarOpen] = useState(false);
   const [location] = useLocation();
   const { theme, setTheme } = useTheme();
   const [time, setTime] = useState("");
-  const [ping, setPing] = useState<number | null>(null);
+  const [ping, setPing] = useState(null);
 
-  const { data: health, refetch } = useHealthCheck({ query: { refetchInterval: 5000 } });
+  const { refetch } = useHealthCheck({ query: { refetchInterval: 5000 } });
 
   useEffect(() => {
-    const updateTime = () => {
-      setTime(new Date().toLocaleTimeString("en-US", { timeZone: "Asia/Manila" }));
-    };
+    const updateTime = () => setTime(new Date().toLocaleTimeString("en-US", { timeZone: "Asia/Manila" }));
     updateTime();
     const interval = setInterval(updateTime, 1000);
     return () => clearInterval(interval);
@@ -56,10 +41,9 @@ export function Layout({ children }: { children: React.ReactNode }) {
 
   return (
     <div className="min-h-screen bg-background flex flex-col">
-      {/* Navbar */}
       <header className="h-16 border-b border-border bg-card flex items-center justify-between px-4 sticky top-0 z-40">
         <div className="flex items-center gap-4">
-          <button 
+          <button
             data-testid="button-menu"
             className="p-2 -ml-2 rounded-md hover:bg-secondary/80 text-foreground"
             onClick={() => setSidebarOpen(true)}
@@ -79,7 +63,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
           </div>
           <div className="hidden sm:flex items-center gap-2 text-sm text-muted-foreground">
             <Wifi className="w-4 h-4" />
-            <span data-testid="text-ping">{ping !== null ? `${ping}ms` : '---'}</span>
+            <span data-testid="text-ping">{ping !== null ? `${ping}ms` : "---"}</span>
           </div>
           <button
             data-testid="button-theme-toggle"
@@ -91,24 +75,20 @@ export function Layout({ children }: { children: React.ReactNode }) {
         </div>
       </header>
 
-      {/* Sidebar Overlay */}
       {isSidebarOpen && (
-        <div 
+        <div
           className="fixed inset-0 bg-background/80 backdrop-blur-sm z-50 transition-all"
           onClick={() => setSidebarOpen(false)}
         />
       )}
 
-      {/* Sidebar */}
-      <aside 
-        className={`fixed inset-y-0 left-0 w-64 bg-card border-r border-border z-50 transform transition-transform duration-300 ease-in-out ${isSidebarOpen ? 'translate-x-0' : '-translate-x-full'}`}
-      >
+      <aside className={`fixed inset-y-0 left-0 w-64 bg-card border-r border-border z-50 transform transition-transform duration-300 ease-in-out ${isSidebarOpen ? "translate-x-0" : "-translate-x-full"}`}>
         <div className="h-16 flex items-center justify-between px-4 border-b border-border">
           <div className="flex items-center gap-2 text-primary">
             <Bot className="w-6 h-6" />
             <span className="font-bold text-lg">Menu</span>
           </div>
-          <button 
+          <button
             className="p-2 -mr-2 rounded-md hover:bg-secondary/80 text-foreground"
             onClick={() => setSidebarOpen(false)}
           >
@@ -120,11 +100,11 @@ export function Layout({ children }: { children: React.ReactNode }) {
             const Icon = item.icon;
             const isActive = location === item.href;
             return (
-              <Link 
-                key={item.href} 
+              <Link
+                key={item.href}
                 href={item.href}
                 onClick={() => setSidebarOpen(false)}
-                className={`flex items-center gap-3 px-3 py-2 rounded-md transition-colors ${isActive ? 'bg-primary text-primary-foreground font-medium' : 'hover:bg-secondary/80 text-foreground'}`}
+                className={`flex items-center gap-3 px-3 py-2 rounded-md transition-colors ${isActive ? "bg-primary text-primary-foreground font-medium" : "hover:bg-secondary/80 text-foreground"}`}
               >
                 <Icon className="w-5 h-5" />
                 <span>{item.label}</span>
@@ -134,7 +114,6 @@ export function Layout({ children }: { children: React.ReactNode }) {
         </nav>
       </aside>
 
-      {/* Main Content */}
       <main className="flex-1 p-4 sm:p-6 lg:p-8 max-w-7xl mx-auto w-full">
         {children}
       </main>

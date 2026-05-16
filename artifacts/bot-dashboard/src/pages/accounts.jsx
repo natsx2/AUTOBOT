@@ -1,4 +1,4 @@
-import { useGetBotAccounts, useBotLogout, getGetBotAccountsQueryKey, getGetBotStatsQueryKey } from "@workspace/api-client-react";
+import { useGetBotAccounts, useBotLogout, QK } from "@/api/hooks";
 import { useQueryClient } from "@tanstack/react-query";
 import { useToast } from "@/hooks/use-toast";
 import { Card, CardContent, CardHeader, CardTitle, CardFooter } from "@/components/ui/card";
@@ -8,34 +8,26 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { LogOut, Activity, Hash, Clock } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 
-const formatUptime = (s: number) => {
-  return `${Math.floor(s / 3600).toString().padStart(2, '0')}:${Math.floor((s % 3600) / 60).toString().padStart(2, '0')}:${(s % 60).toString().padStart(2, '0')}`;
-};
+const formatUptime = (s) =>
+  `${Math.floor(s / 3600).toString().padStart(2, "0")}:${Math.floor((s % 3600) / 60).toString().padStart(2, "0")}:${(s % 60).toString().padStart(2, "0")}`;
 
 export default function Accounts() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
-  
+
   const { data: accounts, isLoading } = useGetBotAccounts({ query: { refetchInterval: 5000 } });
   const logoutMutation = useBotLogout();
 
-  const handleLogout = (userid: string) => {
+  const handleLogout = (userid) => {
     logoutMutation.mutate({ userid }, {
-      onSuccess: (res) => {
-        toast({
-          title: "Logged Out",
-          description: "Bot session terminated successfully.",
-        });
-        queryClient.invalidateQueries({ queryKey: getGetBotAccountsQueryKey() });
-        queryClient.invalidateQueries({ queryKey: getGetBotStatsQueryKey() });
+      onSuccess: () => {
+        toast({ title: "Logged Out", description: "Bot session terminated successfully." });
+        queryClient.invalidateQueries({ queryKey: QK.accounts() });
+        queryClient.invalidateQueries({ queryKey: QK.stats() });
       },
       onError: (err) => {
-        toast({
-          variant: "destructive",
-          title: "Logout Failed",
-          description: err.error || "Could not log out the account.",
-        });
-      }
+        toast({ variant: "destructive", title: "Logout Failed", description: err.error || "Could not log out the account." });
+      },
     });
   };
 
@@ -81,7 +73,7 @@ export default function Accounts() {
                       <span className="truncate">{acc.userid}</span>
                     </div>
                   </div>
-                  <div className="w-2 h-2 rounded-full bg-green-500 shadow-[0_0_8px_rgba(34,197,94,0.6)] animate-pulse"></div>
+                  <div className="w-2 h-2 rounded-full bg-green-500 shadow-[0_0_8px_rgba(34,197,94,0.6)] animate-pulse" />
                 </div>
               </CardHeader>
               <CardContent className="py-4 flex-1 space-y-4">
@@ -97,9 +89,9 @@ export default function Accounts() {
                 </div>
               </CardContent>
               <CardFooter className="pt-0 pb-4 px-4 bg-secondary/10">
-                <Button 
-                  variant="destructive" 
-                  className="w-full mt-2" 
+                <Button
+                  variant="destructive"
+                  className="w-full mt-2"
                   size="sm"
                   onClick={() => handleLogout(acc.userid)}
                   disabled={logoutMutation.isPending}
