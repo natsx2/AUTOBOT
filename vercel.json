@@ -1,0 +1,21 @@
+{
+  "version": 2,
+  "buildCommand": "pnpm install --frozen-lockfile && BASE_PATH=/ pnpm --filter @workspace/bot-dashboard run build",
+  "outputDirectory": "artifacts/bot-dashboard/dist/public",
+  "installCommand": "npm install -g pnpm && pnpm install --frozen-lockfile",
+  "framework": null,
+  "rewrites": [
+    { "source": "/api/(.*)", "destination": "https://YOUR_RENDER_OR_RAILWAY_API_URL/api/$1" },
+    { "source": "/(.*)", "destination": "/index.html" }
+  ],
+  "headers": [
+    {
+      "source": "/api/(.*)",
+      "headers": [
+        { "key": "Access-Control-Allow-Origin", "value": "*" },
+        { "key": "Access-Control-Allow-Methods", "value": "GET, POST, PUT, DELETE, OPTIONS" },
+        { "key": "Access-Control-Allow-Headers", "value": "Content-Type, Authorization" }
+      ]
+    }
+  ]
+}

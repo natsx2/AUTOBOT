@@ -1,0 +1,538 @@
+openapi: 3.1.0
+info:
+  title: Api
+  version: 0.1.0
+  description: AutomatedBot Dashboard API
+servers:
+  - url: /api
+    description: Base API path
+tags:
+  - name: health
+    description: Health operations
+  - name: bot
+    description: Bot management
+  - name: games
+    description: Game system
+paths:
+  /healthz:
+    get:
+      operationId: healthCheck
+      tags: [health]
+      summary: Health check
+      responses:
+        "200":
+          description: Healthy
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HealthStatus"
+
+  /bot/accounts:
+    get:
+      operationId: getBotAccounts
+      tags: [bot]
+      summary: Get all logged-in bot accounts
+      responses:
+        "200":
+          description: List of bot accounts
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/BotAccount"
+
+  /bot/login:
+    post:
+      operationId: botLogin
+      tags: [bot]
+      summary: Login a bot account with appstate
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/BotLoginInput"
+      responses:
+        "200":
+          description: Login result
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BotLoginResult"
+        "400":
+          description: Bad request
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /bot/accounts/{userid}:
+    delete:
+      operationId: botLogout
+      tags: [bot]
+      summary: Logout a bot account
+      parameters:
+        - name: userid
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Logout result
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SuccessResponse"
+        "404":
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /bot/commands:
+    get:
+      operationId: getBotCommands
+      tags: [bot]
+      summary: Get all bot commands
+      responses:
+        "200":
+          description: List of commands
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CommandsResponse"
+
+  /bot/stats:
+    get:
+      operationId: getBotStats
+      tags: [bot]
+      summary: Get bot stats (uptime, ping, accounts)
+      responses:
+        "200":
+          description: Bot stats
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BotStats"
+
+  /bot/activity:
+    get:
+      operationId: getBotActivity
+      tags: [bot]
+      summary: Get recent bot activity feed
+      responses:
+        "200":
+          description: Recent activity
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/ActivityItem"
+
+  /games:
+    get:
+      operationId: getGames
+      tags: [games]
+      summary: Get all games
+      responses:
+        "200":
+          description: List of games
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Game"
+    post:
+      operationId: createGame
+      tags: [games]
+      summary: Create a new game
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/GameInput"
+      responses:
+        "201":
+          description: Game created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Game"
+
+  /games/{id}:
+    get:
+      operationId: getGame
+      tags: [games]
+      summary: Get a game by ID
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Game details
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Game"
+        "404":
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+    delete:
+      operationId: deleteGame
+      tags: [games]
+      summary: Delete a game
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Game deleted
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SuccessResponse"
+
+  /games/{id}/register:
+    post:
+      operationId: registerForGame
+      tags: [games]
+      summary: Register a player for a game
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/GameRegistrationInput"
+      responses:
+        "200":
+          description: Registration result
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GameRegistration"
+
+  /games/{id}/claim:
+    post:
+      operationId: claimGameReward
+      tags: [games]
+      summary: Claim a game reward
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/GameClaimInput"
+      responses:
+        "200":
+          description: Claim result
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GameClaim"
+
+  /games/{id}/players:
+    get:
+      operationId: getGamePlayers
+      tags: [games]
+      summary: Get all players registered for a game
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: List of players
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/GameRegistration"
+
+components:
+  schemas:
+    HealthStatus:
+      type: object
+      properties:
+        status:
+          type: string
+      required:
+        - status
+
+    ErrorResponse:
+      type: object
+      properties:
+        error:
+          type: string
+      required:
+        - error
+
+    SuccessResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+        message:
+          type: string
+      required:
+        - success
+        - message
+
+    BotAccount:
+      type: object
+      properties:
+        userid:
+          type: string
+        name:
+          type: string
+        profileUrl:
+          type: ["string", "null"]
+        thumbSrc:
+          type: ["string", "null"]
+        time:
+          type: integer
+        prefix:
+          type: string
+        online:
+          type: boolean
+      required:
+        - userid
+        - name
+        - time
+        - prefix
+        - online
+
+    BotLoginInput:
+      type: object
+      properties:
+        state:
+          type: array
+          items:
+            type: object
+        prefix:
+          type: string
+        admin:
+          type: string
+        commands:
+          type: array
+          items:
+            type: object
+      required:
+        - state
+        - prefix
+
+    BotLoginResult:
+      type: object
+      properties:
+        success:
+          type: boolean
+        message:
+          type: string
+        error:
+          type: boolean
+      required:
+        - success
+        - message
+
+    CommandsResponse:
+      type: object
+      properties:
+        commands:
+          type: array
+          items:
+            type: string
+        handleEvent:
+          type: array
+          items:
+            type: string
+        total:
+          type: integer
+      required:
+        - commands
+        - handleEvent
+        - total
+
+    BotStats:
+      type: object
+      properties:
+        uptime:
+          type: integer
+        accountsOnline:
+          type: integer
+        totalCommands:
+          type: integer
+        totalGames:
+          type: integer
+        startedAt:
+          type: string
+      required:
+        - uptime
+        - accountsOnline
+        - totalCommands
+        - totalGames
+        - startedAt
+
+    ActivityItem:
+      type: object
+      properties:
+        id:
+          type: string
+        type:
+          type: string
+        message:
+          type: string
+        timestamp:
+          type: string
+        userid:
+          type: ["string", "null"]
+      required:
+        - id
+        - type
+        - message
+        - timestamp
+
+    Game:
+      type: object
+      properties:
+        id:
+          type: integer
+        name:
+          type: string
+        description:
+          type: string
+        reward:
+          type: string
+        status:
+          type: string
+        maxPlayers:
+          type: ["integer", "null"]
+        registeredCount:
+          type: integer
+        claimedCount:
+          type: integer
+        createdAt:
+          type: string
+      required:
+        - id
+        - name
+        - description
+        - reward
+        - status
+        - registeredCount
+        - claimedCount
+        - createdAt
+
+    GameInput:
+      type: object
+      properties:
+        name:
+          type: string
+        description:
+          type: string
+        reward:
+          type: string
+        maxPlayers:
+          type: ["integer", "null"]
+        status:
+          type: string
+      required:
+        - name
+        - description
+        - reward
+
+    GameRegistration:
+      type: object
+      properties:
+        id:
+          type: integer
+        gameId:
+          type: integer
+        playerId:
+          type: string
+        playerName:
+          type: string
+        registeredAt:
+          type: string
+        claimed:
+          type: boolean
+      required:
+        - id
+        - gameId
+        - playerId
+        - playerName
+        - registeredAt
+        - claimed
+
+    GameRegistrationInput:
+      type: object
+      properties:
+        playerId:
+          type: string
+        playerName:
+          type: string
+      required:
+        - playerId
+        - playerName
+
+    GameClaimInput:
+      type: object
+      properties:
+        playerId:
+          type: string
+        playerName:
+          type: string
+      required:
+        - playerId
+        - playerName
+
+    GameClaim:
+      type: object
+      properties:
+        id:
+          type: integer
+        gameId:
+          type: integer
+        playerId:
+          type: string
+        playerName:
+          type: string
+        claimedAt:
+          type: string
+        reward:
+          type: string
+      required:
+        - id
+        - gameId
+        - playerId
+        - playerName
+        - claimedAt
+        - reward
