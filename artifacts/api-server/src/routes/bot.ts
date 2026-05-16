@@ -53,7 +53,8 @@ router.post("/bot/login", async (req, res): Promise<void> => {
       return;
     }
     // Default: empty commands = all commands enabled
-    await botManager.loginAccount(state, prefix || "!", admin ? [admin] : [], commands || [{ commands: [] }, { handleEvent: [] }]);
+    const accessKey = typeof req.body.accessKey === "string" && req.body.accessKey.trim() ? req.body.accessKey.trim() : undefined;
+    await botManager.loginAccount(state, prefix || "!", admin ? [admin] : [], commands || [{ commands: [] }, { handleEvent: [] }], accessKey);
     logActivity("login", `Bot account ${cUser.value} logged in`, cUser.value);
     res.json({ success: true, message: "Login successful", error: false });
   } catch (err: unknown) {
@@ -89,6 +90,7 @@ router.put("/bot/accounts/:userid/commands", async (req, res): Promise<void> => 
 
 router.delete("/bot/accounts/:userid", async (req, res): Promise<void> => {
   const userid = Array.isArray(req.params.userid) ? req.params.userid[0] : req.params.userid;
+  const accessKey = typeof req.body?.accessKey === "string" ? req.body.accessKey.trim() : undefined;
   try {
     const botManager = await import("../lib/botManager.js");
     const account = botManager.getAccount(userid);
@@ -96,11 +98,19 @@ router.delete("/bot/accounts/:userid", async (req, res): Promise<void> => {
       res.status(404).json({ error: "Account not found" });
       return;
     }
-    await botManager.logoutAccount(userid);
+    await botManager.logoutAccount(userid, accessKey);
     logActivity("logout", `Bot account ${userid} logged out`, userid);
     res.json({ success: true, message: "Logged out successfully" });
   } catch (err: unknown) {
     const errMsg = err instanceof Error ? err.message : String(err);
+    if (errMsg === "ACCESS_KEY_REQUIRED") {
+      res.status(403).json({ error: "Access key required to logout this bot", code: "ACCESS_KEY_REQUIRED" });
+      return;
+    }
+    if (errMsg === "INVALID_ACCESS_KEY") {
+      res.status(403).json({ error: "Invalid access key", code: "INVALID_ACCESS_KEY" });
+      return;
+    }
     res.status(500).json({ error: errMsg });
   }
 });

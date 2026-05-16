@@ -77,8 +77,11 @@ export function useBotLogin() {
 
 export function useBotLogout() {
   return useMutation({
-    mutationFn: ({ userid }) =>
-      apiFetch(`/api/bot/accounts/${userid}`, { method: "DELETE" }),
+    mutationFn: ({ userid, accessKey }) =>
+      apiFetch(`/api/bot/accounts/${userid}`, {
+        method: "DELETE",
+        body: JSON.stringify({ accessKey: accessKey || undefined }),
+      }),
   });
 }
 

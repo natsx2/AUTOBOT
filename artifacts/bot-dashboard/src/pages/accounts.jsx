@@ -12,7 +12,9 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Checkbox } from "@/components/ui/checkbox";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Badge } from "@/components/ui/badge";
-import { LogOut, Activity, Hash, Clock, Terminal, Settings, X, Check, ChevronRight } from "lucide-react";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { LogOut, Activity, Hash, Clock, Terminal, Settings, X, Check, ChevronRight, Lock, Eye, EyeOff, AlertTriangle } from "lucide-react";
 
 const formatUptime = (s) =>
   `${Math.floor(s / 3600).toString().padStart(2, "0")}:${Math.floor((s % 3600) / 60).toString().padStart(2, "0")}:${(s % 60).toString().padStart(2, "0")}`;
@@ -157,26 +159,99 @@ function CommandConfigurator({ userid, onClose }) {
   );
 }
 
+function LogoutDialog({ account, onConfirm, onCancel, isPending }) {
+  const [key, setKey] = useState("");
+  const [showKey, setShowKey] = useState(false);
+
+  return (
+    <div className="border border-destructive/40 rounded-xl bg-destructive/5 p-4 space-y-3 mt-2">
+      <div className="flex items-center gap-2 text-destructive">
+        <AlertTriangle className="w-4 h-4" />
+        <span className="text-sm font-semibold">Confirm Logout — {account.name}</span>
+      </div>
+      <p className="text-xs text-muted-foreground">
+        This bot is protected with an access key. Enter the key to proceed.
+      </p>
+      <div className="space-y-1">
+        <Label htmlFor={`logout-key-${account.userid}`} className="text-xs flex items-center gap-1">
+          <Lock className="w-3 h-3" /> Access Key
+        </Label>
+        <div className="relative">
+          <Input
+            id={`logout-key-${account.userid}`}
+            type={showKey ? "text" : "password"}
+            placeholder="Enter access key..."
+            value={key}
+            onChange={(e) => setKey(e.target.value)}
+            className="pr-10 h-8 text-sm"
+            onKeyDown={(e) => e.key === "Enter" && key.trim() && onConfirm(key.trim())}
+            autoFocus
+          />
+          <button
+            type="button"
+            className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+            onClick={() => setShowKey((v) => !v)}
+          >
+            {showKey ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+          </button>
+        </div>
+      </div>
+      <div className="flex gap-2 justify-end">
+        <Button variant="ghost" size="sm" className="h-7 text-xs" onClick={onCancel} disabled={isPending}>
+          Cancel
+        </Button>
+        <Button
+          variant="destructive"
+          size="sm"
+          className="h-7 text-xs"
+          onClick={() => onConfirm(key.trim())}
+          disabled={isPending || !key.trim()}
+        >
+          <LogOut className="w-3 h-3 mr-1" />
+          {isPending ? "Logging out..." : "Confirm Logout"}
+        </Button>
+      </div>
+    </div>
+  );
+}
+
 export default function Accounts() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const [configuringAccount, setConfiguringAccount] = useState(null);
+  const [logoutPromptAccount, setLogoutPromptAccount] = useState(null);
 
   const { data: accounts, isLoading } = useGetBotAccounts({ query: { refetchInterval: 5000 } });
   const logoutMutation = useBotLogout();
 
-  const handleLogout = (userid) => {
-    logoutMutation.mutate({ userid }, {
+  const handleLogout = (userid, accessKey) => {
+    logoutMutation.mutate({ userid, accessKey }, {
       onSuccess: () => {
         toast({ title: "Logged Out", description: "Bot session terminated successfully." });
         queryClient.invalidateQueries({ queryKey: QK.accounts() });
         queryClient.invalidateQueries({ queryKey: QK.stats() });
         if (configuringAccount === userid) setConfiguringAccount(null);
+        setLogoutPromptAccount(null);
       },
       onError: (err) => {
-        toast({ variant: "destructive", title: "Logout Failed", description: err.error || "Could not log out the account." });
+        const code = err?.code || "";
+        if (code === "ACCESS_KEY_REQUIRED") {
+          toast({ variant: "destructive", title: "Key Required", description: "This bot requires an access key to logout." });
+        } else if (code === "INVALID_ACCESS_KEY") {
+          toast({ variant: "destructive", title: "Wrong Key", description: "The access key you entered is incorrect." });
+        } else {
+          toast({ variant: "destructive", title: "Logout Failed", description: err.error || "Could not log out the account." });
+        }
       },
     });
+  };
+
+  const initiateLogout = (acc) => {
+    if (acc.hasKey) {
+      setLogoutPromptAccount(acc.userid);
+    } else {
+      handleLogout(acc.userid, undefined);
+    }
   };
 
   return (
@@ -216,7 +291,14 @@ export default function Accounts() {
                     <AvatarFallback className="bg-primary/10 text-primary">{acc.name.substring(0, 2).toUpperCase()}</AvatarFallback>
                   </Avatar>
                   <div className="flex-1 min-w-0">
-                    <h3 className="font-semibold text-lg truncate" title={acc.name}>{acc.name}</h3>
+                    <div className="flex items-center gap-2">
+                      <h3 className="font-semibold text-lg truncate" title={acc.name}>{acc.name}</h3>
+                      {acc.hasKey && (
+                        <span title="Protected by access key">
+                          <Lock className="w-3.5 h-3.5 text-amber-500 shrink-0" />
+                        </span>
+                      )}
+                    </div>
                     <div className="text-xs text-muted-foreground truncate">{acc.userid}</div>
                   </div>
                   <div className="w-2 h-2 rounded-full bg-green-500 shadow-[0_0_8px_rgba(34,197,94,0.6)] animate-pulse" />
@@ -253,12 +335,21 @@ export default function Accounts() {
                   variant="destructive"
                   className="w-full"
                   size="sm"
-                  onClick={() => handleLogout(acc.userid)}
-                  disabled={logoutMutation.isPending}
+                  onClick={() => initiateLogout(acc)}
+                  disabled={logoutMutation.isPending && logoutPromptAccount !== acc.userid}
                 >
-                  <LogOut className="w-4 h-4 mr-2" />
+                  {acc.hasKey ? <Lock className="w-4 h-4 mr-2" /> : <LogOut className="w-4 h-4 mr-2" />}
                   Logout Session
                 </Button>
+
+                {logoutPromptAccount === acc.userid && (
+                  <LogoutDialog
+                    account={acc}
+                    isPending={logoutMutation.isPending}
+                    onConfirm={(key) => handleLogout(acc.userid, key)}
+                    onCancel={() => setLogoutPromptAccount(null)}
+                  />
+                )}
               </CardFooter>
             </Card>
           ))

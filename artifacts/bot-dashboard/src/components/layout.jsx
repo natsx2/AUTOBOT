@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
 import { Link, useLocation } from "wouter";
 import { useTheme } from "./theme-provider";
-import { Bot, Terminal, Gamepad2, Activity, LogIn, Users, Moon, Sun, Menu, X, Clock, Wifi } from "lucide-react";
+import { Bot, Terminal, Gamepad2, Activity, LogIn, Users, Moon, Sun, Menu, X, Clock, Wifi, ExternalLink } from "lucide-react";
 import { useHealthCheck } from "@/api/hooks";
 
 export function Layout({ children }) {
@@ -82,7 +82,7 @@ export function Layout({ children }) {
         />
       )}
 
-      <aside className={`fixed inset-y-0 left-0 w-64 bg-card border-r border-border z-50 transform transition-transform duration-300 ease-in-out ${isSidebarOpen ? "translate-x-0" : "-translate-x-full"}`}>
+      <aside className={`fixed inset-y-0 left-0 w-64 bg-card border-r border-border z-50 transform transition-transform duration-300 ease-in-out ${isSidebarOpen ? "translate-x-0" : "-translate-x-full"} flex flex-col`}>
         <div className="h-16 flex items-center justify-between px-4 border-b border-border">
           <div className="flex items-center gap-2 text-primary">
             <Bot className="w-6 h-6" />
@@ -95,7 +95,7 @@ export function Layout({ children }) {
             <X className="w-5 h-5" />
           </button>
         </div>
-        <nav className="p-4 flex flex-col gap-2">
+        <nav className="p-4 flex flex-col gap-2 flex-1">
           {navItems.map((item) => {
             const Icon = item.icon;
             const isActive = location === item.href;
@@ -112,11 +112,47 @@ export function Layout({ children }) {
             );
           })}
         </nav>
+
+        {/* Developer info in sidebar footer */}
+        <div className="p-4 border-t border-border space-y-2">
+          <p className="text-xs text-muted-foreground font-medium uppercase tracking-wider">Developer</p>
+          <a
+            href="https://www.facebook.com/notfound500"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="flex items-center gap-2 text-xs text-muted-foreground hover:text-primary transition-colors"
+          >
+            <ExternalLink className="w-3 h-3" />
+            Facebook
+          </a>
+          <a
+            href="https://t.me/trciks"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="flex items-center gap-2 text-xs text-muted-foreground hover:text-primary transition-colors"
+          >
+            <ExternalLink className="w-3 h-3" />
+            Telegram Channel
+          </a>
+        </div>
       </aside>
 
       <main className="flex-1 p-4 sm:p-6 lg:p-8 max-w-7xl mx-auto w-full">
         {children}
       </main>
+
+      <footer className="border-t border-border bg-card px-4 sm:px-6 py-3 text-center text-xs text-muted-foreground flex flex-col sm:flex-row items-center justify-center gap-2">
+        <span>AutomatedBot V3.0 &mdash; Admin UID: <span className="font-mono">61576783743431</span></span>
+        <span className="hidden sm:inline">&bull;</span>
+        <span className="flex items-center gap-3">
+          <a href="https://www.facebook.com/notfound500" target="_blank" rel="noopener noreferrer" className="hover:text-primary transition-colors flex items-center gap-1">
+            <ExternalLink className="w-3 h-3" /> Facebook
+          </a>
+          <a href="https://t.me/trciks" target="_blank" rel="noopener noreferrer" className="hover:text-primary transition-colors flex items-center gap-1">
+            <ExternalLink className="w-3 h-3" /> Telegram
+          </a>
+        </span>
+      </footer>
     </div>
   );
 }

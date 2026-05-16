@@ -35,6 +35,24 @@ module.exports.run = async function({ api, event, DATA_DIR }) {
   }
 
   const user = eco.users[targetId];
+
+  // Auto-fix default placeholder names on the fly
+  if (!user.name || user.name.startsWith('User_')) {
+    try {
+      const info = await new Promise((res) => {
+        api.getUserInfo([targetId], (err, d) => res(err ? null : d));
+      });
+      if (info) {
+        const u = info[targetId] || info[String(targetId)] || Object.values(info)[0];
+        if (u?.name) {
+          user.name = u.name;
+          eco.users[targetId].name = u.name;
+          const file = require('path').join(DATA_DIR, 'economy.json');
+          require('fs').writeFileSync(file, JSON.stringify(eco, null, 2));
+        }
+      }
+    } catch {}
+  }
   const lastClaim = user.lastClaim ? new Date(user.lastClaim) : null;
   const now = new Date();
   const canClaim = !lastClaim || (now - lastClaim) >= 3600000;

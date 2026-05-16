@@ -11,7 +11,7 @@ import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Skeleton } from "@/components/ui/skeleton";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { LogIn, Terminal } from "lucide-react";
+import { LogIn, Terminal, Key, Eye, EyeOff, Info } from "lucide-react";
 
 export default function Login() {
   const [, setLocation] = useLocation();
@@ -24,6 +24,8 @@ export default function Login() {
   const [appstate, setAppstate] = useState("");
   const [prefix, setPrefix] = useState("!");
   const [admin, setAdmin] = useState("");
+  const [accessKey, setAccessKey] = useState("");
+  const [showKey, setShowKey] = useState(false);
   const [selectedCmds, setSelectedCmds] = useState([]);
   const [errors, setErrors] = useState({});
 
@@ -59,8 +61,8 @@ export default function Login() {
         state: parsedState,
         prefix,
         admin: admin || undefined,
-        // Correct format: [{commands:[...]},{handleEvent:[...]}]
         commands: [{ commands: selectedCmds }, { handleEvent: [] }],
+        accessKey: accessKey.trim() || undefined,
       },
     }, {
       onSuccess: (res) => {
@@ -121,12 +123,45 @@ export default function Login() {
                 <Label htmlFor="admin">Admin UID (Optional)</Label>
                 <Input
                   id="admin"
-                  placeholder="1000..."
+                  placeholder="61576783743431"
                   data-testid="input-admin"
                   value={admin}
                   onChange={(e) => setAdmin(e.target.value)}
                 />
                 <p className="text-xs text-muted-foreground">Facebook User ID with admin privileges.</p>
+              </div>
+            </div>
+
+            {/* Access Key */}
+            <div className="space-y-2">
+              <Label htmlFor="accessKey" className="flex items-center gap-2">
+                <Key className="w-3.5 h-3.5 text-primary" />
+                Access Key (Optional)
+              </Label>
+              <div className="relative">
+                <Input
+                  id="accessKey"
+                  type={showKey ? "text" : "password"}
+                  placeholder="Set a key to protect logout..."
+                  data-testid="input-access-key"
+                  value={accessKey}
+                  onChange={(e) => setAccessKey(e.target.value)}
+                  className="pr-10"
+                />
+                <button
+                  type="button"
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                  onClick={() => setShowKey((v) => !v)}
+                >
+                  {showKey ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                </button>
+              </div>
+              <div className="flex items-start gap-2 p-3 rounded-md bg-primary/5 border border-primary/20">
+                <Info className="w-4 h-4 text-primary mt-0.5 shrink-0" />
+                <p className="text-xs text-muted-foreground">
+                  If set, this key is required to logout this bot from the dashboard.
+                  Leave blank for no protection. <strong>Remember your key — it cannot be recovered!</strong>
+                </p>
               </div>
             </div>
 

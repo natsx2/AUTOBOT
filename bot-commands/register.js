@@ -24,26 +24,43 @@ module.exports.config = {
   category: "economy"
 };
 
+async function fetchName(api, senderID) {
+  try {
+    const info = await new Promise((res) => {
+      api.getUserInfo([senderID], (err, d) => res(err ? null : d));
+    });
+    if (info) {
+      const u = info[senderID] || info[String(senderID)] || Object.values(info)[0];
+      if (u?.name) return u.name;
+    }
+  } catch {}
+  return null;
+}
+
 module.exports.run = async function({ api, event, DATA_DIR }) {
   const { threadID, messageID, senderID } = event;
 
   const eco = getEconomy(DATA_DIR);
+
   if (eco.users[senderID]) {
     const user = eco.users[senderID];
+    // Auto-fix name if it's still the default placeholder
+    const isDefaultName = !user.name || user.name.startsWith('User_');
+    if (isDefaultName) {
+      const realName = await fetchName(api, senderID);
+      if (realName) {
+        eco.users[senderID].name = realName;
+        saveEconomy(DATA_DIR, eco);
+        user.name = realName;
+      }
+    }
     return api.sendMessage(
-      `✅ You are already registered!\n👤 Name: ${user.name}\n💰 Balance: ${user.balance.toLocaleString()} coins`,
+      `✅ Already registered!\n👤 Name: ${user.name}\n💰 Balance: ${user.balance.toLocaleString()} coins`,
       threadID, messageID
     );
   }
 
-  let name = `User_${senderID}`;
-  try {
-    const info = await new Promise((res, rej) => {
-      const r = api.getUserInfo(senderID, (err, d) => err ? rej(err) : res(d));
-      if (r && typeof r.then === 'function') r.then(res).catch(rej);
-    });
-    name = info?.[senderID]?.name || name;
-  } catch {}
+  const name = (await fetchName(api, senderID)) || `User_${senderID}`;
 
   eco.users[senderID] = {
     name,

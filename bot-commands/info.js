@@ -1,13 +1,14 @@
 module.exports.config = {
   name: "info",
   aliases: ["botinfo", "about"],
-  version: "1.0.0",
+  version: "2.0.0",
   role: 0,
-  credits: "Vern",
+  credits: "AutoBot",
   hasPrefix: true,
-  description: "Show bot information and current stats",
+  description: "Show bot information and developer contacts",
   usage: "info",
-  cooldowns: 5
+  cooldowns: 5,
+  category: "utility"
 };
 
 module.exports.run = async function({ api, event, prefix, Utils }) {
@@ -23,13 +24,21 @@ module.exports.run = async function({ api, event, prefix, Utils }) {
   const s = seconds % 60;
 
   const msg = [
-    "AutomatedBot V3.0",
-    `Name: ${account?.name || "Unknown"}`,
-    `Prefix: ${prefix}`,
-    `Commands: ${cmdCount}`,
-    `Event Handlers: ${eventCount}`,
-    `Uptime: ${h}h ${m}m ${s}s`,
-    `Credits: Vern (github.com/vernesg)`
+    "╔══════════════════╗",
+    "   🤖 AUTOBOT V3.0   ",
+    "╚══════════════════╝",
+    "",
+    `👤 Bot Name: ${account?.name || "Unknown"}`,
+    `🔑 Prefix: ${prefix}`,
+    `⚙️  Commands: ${cmdCount}`,
+    `📡 Events: ${eventCount}`,
+    `⏱️  Uptime: ${h}h ${m}m ${s}s`,
+    "",
+    "👨‍💻 Developer",
+    "📘 Facebook: https://www.facebook.com/notfound500",
+    "📢 Telegram: https://t.me/trciks",
+    "",
+    "💡 Type !help to see all commands"
   ].join("\n");
 
   return api.sendMessage(msg, threadID, messageID);
