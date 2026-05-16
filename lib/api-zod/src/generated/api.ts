@@ -71,6 +71,32 @@ export const BotLogoutResponse = zod.object({
 export const GetBotCommandsResponse = zod.object({
   "commands": zod.array(zod.string()),
   "handleEvent": zod.array(zod.string()),
+  "commandDetails": zod.array(zod.object({
+  "name": zod.string(),
+  "description": zod.string(),
+  "usage": zod.string(),
+  "credits": zod.string(),
+  "role": zod.number(),
+  "cooldown": zod.number(),
+  "aliases": zod.array(zod.string()),
+  "hasPrefix": zod.boolean(),
+  "version": zod.string(),
+  "category": zod.string(),
+  "dev": zod.boolean()
+})),
+  "handleEventDetails": zod.array(zod.object({
+  "name": zod.string(),
+  "description": zod.string(),
+  "usage": zod.string(),
+  "credits": zod.string(),
+  "role": zod.number(),
+  "cooldown": zod.number(),
+  "aliases": zod.array(zod.string()),
+  "hasPrefix": zod.boolean(),
+  "version": zod.string(),
+  "category": zod.string(),
+  "dev": zod.boolean()
+})),
   "total": zod.number()
 })
 

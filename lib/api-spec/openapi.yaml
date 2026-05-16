@@ -363,6 +363,46 @@ components:
         - success
         - message
 
+    CommandDetail:
+      type: object
+      properties:
+        name:
+          type: string
+        description:
+          type: string
+        usage:
+          type: string
+        credits:
+          type: string
+        role:
+          type: integer
+        cooldown:
+          type: integer
+        aliases:
+          type: array
+          items:
+            type: string
+        hasPrefix:
+          type: boolean
+        version:
+          type: string
+        category:
+          type: string
+        dev:
+          type: boolean
+      required:
+        - name
+        - description
+        - usage
+        - credits
+        - role
+        - cooldown
+        - aliases
+        - hasPrefix
+        - version
+        - category
+        - dev
+
     CommandsResponse:
       type: object
       properties:
@@ -374,11 +414,21 @@ components:
           type: array
           items:
             type: string
+        commandDetails:
+          type: array
+          items:
+            $ref: "#/components/schemas/CommandDetail"
+        handleEventDetails:
+          type: array
+          items:
+            $ref: "#/components/schemas/CommandDetail"
         total:
           type: integer
       required:
         - commands
         - handleEvent
+        - commandDetails
+        - handleEventDetails
         - total
 
     BotStats:

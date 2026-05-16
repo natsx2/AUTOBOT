@@ -10,10 +10,12 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const require = createRequire(import.meta.url);
 
-const DATA_DIR = path.join(process.cwd(), 'bot-data');
+// Resolve workspace root relative to __dirname (dist/ -> api-server/ -> artifacts/ -> workspace/)
+const WORKSPACE_ROOT = path.resolve(__dirname, '../../..');
+const DATA_DIR = path.join(WORKSPACE_ROOT, 'bot-data');
 const SESSION_DIR = path.join(DATA_DIR, 'session');
 const HISTORY_FILE = path.join(DATA_DIR, 'history.json');
-const COMMANDS_DIR = path.join(process.cwd(), 'bot-commands');
+const COMMANDS_DIR = path.join(WORKSPACE_ROOT, 'bot-commands');
 
 const Utils = {
   commands: new Map(),
@@ -21,6 +23,52 @@ const Utils = {
   account: new Map(),
   cooldowns: new Map(),
 };
+
+// Load commands immediately on module init so they always show in the dashboard
+// even before any bot has logged in (same behaviour as original auto.js)
+(function initCommands() {
+  try {
+    if (!fs.existsSync(COMMANDS_DIR)) {
+      fs.mkdirSync(COMMANDS_DIR, { recursive: true });
+      return;
+    }
+    const files = fs.readdirSync(COMMANDS_DIR).filter(f => f.endsWith('.js'));
+    files.forEach(file => {
+      try {
+        const filePath = path.join(COMMANDS_DIR, file);
+        delete require.cache[require.resolve(filePath)];
+        const mod = require(filePath);
+        if (!mod.config) return;
+        const cfg = mod.config;
+        const name = cfg.name || file.replace('.js', '');
+        const aliases = Array.isArray(cfg.aliases) ? [...cfg.aliases, name] : [name];
+        if (mod.run) {
+          Utils.commands.set(aliases, {
+            name, role: cfg.role || cfg.permission || 0, run: mod.run, aliases,
+            description: cfg.description || '', usage: cfg.usage || cfg.usages || '',
+            version: cfg.version || '1.0.0', hasPrefix: cfg.hasPrefix !== false && cfg.prefix !== false,
+            credits: cfg.credits || '', cooldown: cfg.cooldown || cfg.cooldowns || 5, dev: cfg.dev || false,
+            category: cfg.category || 'general',
+          });
+        }
+        if (mod.handleEvent) {
+          Utils.handleEvent.set(aliases, {
+            name, handleEvent: mod.handleEvent, role: cfg.role || cfg.permission || 0,
+            description: cfg.description || '', usage: cfg.usage || cfg.usages || '',
+            version: cfg.version || '1.0.0', hasPrefix: cfg.hasPrefix !== false && cfg.prefix !== false,
+            credits: cfg.credits || '', cooldown: cfg.cooldown || cfg.cooldowns || 5,
+            category: cfg.category || 'general',
+          });
+        }
+      } catch (err) {
+        console.error(`[BotManager] Failed to load command ${file} on init:`, err.message);
+      }
+    });
+    console.log(`[BotManager] Loaded ${Utils.commands.size} commands, ${Utils.handleEvent.size} event handlers on startup`);
+  } catch (err) {
+    console.error('[BotManager] Command init error:', err.message);
+  }
+}());
 
 // Ensure data directories exist
 function ensureDirs() {
@@ -287,15 +335,47 @@ export function getAccount(userid) {
 export function getCommands() {
   const seen = new Set();
   const commands = [];
-  const handleEventNames = [];
+  const handleEvent = [];
+  const commandDetails = [];
+  const handleEventDetails = [];
 
-  for (const { name } of Utils.commands.values()) {
-    if (!seen.has(name)) { seen.add(name); commands.push(name); }
+  for (const cmd of Utils.commands.values()) {
+    if (!seen.has(cmd.name)) {
+      seen.add(cmd.name);
+      commands.push(cmd.name);
+      commandDetails.push({
+        name: cmd.name,
+        description: cmd.description || '',
+        usage: cmd.usage || '',
+        credits: cmd.credits || '',
+        role: cmd.role || 0,
+        cooldown: cmd.cooldown || 5,
+        aliases: (cmd.aliases || []).filter(a => a !== cmd.name),
+        hasPrefix: cmd.hasPrefix !== false,
+        version: cmd.version || '1.0.0',
+        category: cmd.category || 'general',
+        dev: cmd.dev || false,
+      });
+    }
   }
-  for (const { name } of Utils.handleEvent.values()) {
-    if (!seen.has(name)) { seen.add(name); handleEventNames.push(name); }
+  for (const evt of Utils.handleEvent.values()) {
+    if (!seen.has(evt.name)) {
+      seen.add(evt.name);
+      handleEvent.push(evt.name);
+      handleEventDetails.push({
+        name: evt.name,
+        description: evt.description || '',
+        usage: evt.usage || '',
+        credits: evt.credits || '',
+        role: evt.role || 0,
+        cooldown: evt.cooldown || 5,
+        hasPrefix: evt.hasPrefix !== false,
+        version: evt.version || '1.0.0',
+        category: evt.category || 'general',
+      });
+    }
   }
-  return { commands, handleEvent: handleEventNames };
+  return { commands, handleEvent, commandDetails, handleEventDetails };
 }
 
 // Auto-restore sessions on server startup

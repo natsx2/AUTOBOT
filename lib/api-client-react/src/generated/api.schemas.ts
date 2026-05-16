@@ -47,9 +47,25 @@ export interface BotLoginResult {
   error?: boolean;
 }
 
+export interface CommandDetail {
+  name: string;
+  description: string;
+  usage: string;
+  credits: string;
+  role: number;
+  cooldown: number;
+  aliases: string[];
+  hasPrefix: boolean;
+  version: string;
+  category: string;
+  dev: boolean;
+}
+
 export interface CommandsResponse {
   commands: string[];
   handleEvent: string[];
+  commandDetails: CommandDetail[];
+  handleEventDetails: CommandDetail[];
   total: number;
 }
 

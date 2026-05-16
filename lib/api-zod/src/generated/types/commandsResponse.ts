@@ -5,9 +5,12 @@
  * AutomatedBot Dashboard API
  * OpenAPI spec version: 0.1.0
  */
+import type { CommandDetail } from './commandDetail';
 
 export interface CommandsResponse {
   commands: string[];
   handleEvent: string[];
+  commandDetails: CommandDetail[];
+  handleEventDetails: CommandDetail[];
   total: number;
 }

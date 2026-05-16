@@ -13,6 +13,7 @@ export * from './botLoginInputCommandsItem';
 export * from './botLoginInputStateItem';
 export * from './botLoginResult';
 export * from './botStats';
+export * from './commandDetail';
 export * from './commandsResponse';
 export * from './errorResponse';
 export * from './game';

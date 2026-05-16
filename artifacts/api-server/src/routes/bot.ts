@@ -72,10 +72,16 @@ router.delete("/bot/accounts/:userid", async (req, res): Promise<void> => {
 router.get("/bot/commands", async (_req, res): Promise<void> => {
   try {
     const botManager = await import("../lib/botManager.js");
-    const { commands, handleEvent } = botManager.getCommands();
-    res.json({ commands, handleEvent, total: commands.length + handleEvent.length });
+    const { commands, handleEvent, commandDetails, handleEventDetails } = botManager.getCommands();
+    res.json({
+      commands,
+      handleEvent,
+      commandDetails: commandDetails ?? [],
+      handleEventDetails: handleEventDetails ?? [],
+      total: commands.length + handleEvent.length,
+    });
   } catch {
-    res.json({ commands: [], handleEvent: [], total: 0 });
+    res.json({ commands: [], handleEvent: [], commandDetails: [], handleEventDetails: [], total: 0 });
   }
 });
 
