@@ -1,6 +1,14 @@
 import app from "./app";
 import { logger } from "./lib/logger";
 
+// Prevent a single bad command from crashing the whole server
+process.on("uncaughtException", (err) => {
+  logger.error({ err }, "Uncaught exception — server staying alive");
+});
+process.on("unhandledRejection", (reason) => {
+  logger.error({ reason }, "Unhandled rejection — server staying alive");
+});
+
 const rawPort = process.env["PORT"];
 
 if (!rawPort) {

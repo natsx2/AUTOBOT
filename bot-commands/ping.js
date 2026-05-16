@@ -11,11 +11,11 @@ module.exports.config = {
 };
 
 module.exports.run = async function({ api, event }) {
-  const { threadID, messageID } = event;
+  const { threadID } = event;
   const start = Date.now();
-  api.sendMessage("Pinging...", threadID, (err, info) => {
-    if (err) return;
-    const ms = Date.now() - start;
+  const info = await api.sendMessage("Pinging...", threadID);
+  const ms = Date.now() - start;
+  if (info && info.messageID) {
     api.editMessage(`Pong! Response time: ${ms}ms`, info.messageID);
-  });
+  }
 };
