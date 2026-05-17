@@ -4,7 +4,7 @@ services:
     runtime: node
     region: oregon
     plan: free
-    buildCommand: npm install -g pnpm@10 && pnpm install --no-frozen-lockfile && BASE_PATH=/ pnpm --filter @workspace/bot-dashboard run build && pnpm --filter @workspace/api-server run build
+    buildCommand: npm install -g pnpm@10 && pnpm install --no-frozen-lockfile && NODE_NO_WARNINGS=1 BASE_PATH=/ pnpm --filter @workspace/bot-dashboard run build && pnpm --filter @workspace/api-server run build
     startCommand: node artifacts/api-server/dist/index.mjs
     healthCheckPath: /api/healthz
     envVars:
