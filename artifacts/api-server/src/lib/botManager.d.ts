@@ -38,10 +38,11 @@ export function loginAccount(
   state: object[],
   prefix: string,
   admin: string[],
-  enableCommands: object[]
+  enableCommands: object[],
+  accessKey?: string
 ): Promise<{ userid: string; name: string; profileUrl: string; thumbSrc: string }>;
 
-export function logoutAccount(userid: string): Promise<void>;
+export function logoutAccount(userid: string, accessKey?: string): Promise<void>;
 export function getAccounts(): BotAccount[];
 export function getAccount(userid: string): BotAccount | null;
 export function getAccountEnabledCommands(userid: string): AccountCommands;

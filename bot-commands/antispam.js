@@ -1,14 +1,13 @@
-const fs = require('fs');
-const path = require('path');
+const { addWarning, clearWarnings } = require('./warn');
 
 module.exports.config = {
   name: "antispam",
   aliases: ["spamdetect", "antiabuse"],
-  version: "1.0.0",
+  version: "1.1.0",
   role: 0,
   credits: "AutoBot",
   hasPrefix: false,
-  description: "Auto kick users who spam or use inappropriate words 5+ times",
+  description: "Auto-warn then auto-kick users who spam or use bad words (uses !warn strike system)",
   usage: "",
   cooldowns: 0,
   category: "events"
@@ -21,12 +20,14 @@ const badWords = [
   'fuckyou', 'stfu', 'shutup', 'stupid', 'dumbass',
 ];
 
-const spamTracker = new Map();
-const warned = new Map();
-
+const WARN_MAX = 3;
 const SPAM_THRESHOLD = 5;
 const SPAM_WINDOW = 10 * 1000;
-const WARN_WINDOW = 60 * 1000;
+const COOLDOWN = 60 * 1000;
+
+// In-memory rate trackers (reset on restart, intentional)
+const spamTracker = new Map();
+const cooldowns = new Map();
 
 function getBadWordCount(text) {
   const lower = text.toLowerCase().replace(/\s+/g, '');
@@ -44,8 +45,8 @@ module.exports.handleEvent = async function({ api, event, admin, DATA_DIR }) {
 
   const now = Date.now();
   const key = `${threadID}_${senderID}`;
-  const tracker = spamTracker.get(key) || { messages: [], badCount: 0, warnedAt: 0 };
 
+  const tracker = spamTracker.get(key) || { messages: [], badCount: 0 };
   tracker.messages = tracker.messages.filter(t => now - t < SPAM_WINDOW);
 
   const hasBadWord = getBadWordCount(body) > 0;
@@ -57,12 +58,17 @@ module.exports.handleEvent = async function({ api, event, admin, DATA_DIR }) {
 
   const isSpamming = tracker.messages.length >= SPAM_THRESHOLD;
   const isAbusing = tracker.badCount >= SPAM_THRESHOLD;
-
   if (!isSpamming && !isAbusing) return;
 
-  const warnKey = `${threadID}_${senderID}_warn`;
-  const lastWarn = warned.get(warnKey) || 0;
+  // Cooldown per user per thread to avoid repeat triggers
+  const lastAction = cooldowns.get(key) || 0;
+  if (now - lastAction < COOLDOWN) return;
+  cooldowns.set(key, now);
+  spamTracker.delete(key);
 
+  const reason = isAbusing ? 'using bad words repeatedly' : 'spamming';
+
+  // Resolve user name
   let userName = `User`;
   try {
     const info = await new Promise((res, rej) => {
@@ -73,43 +79,49 @@ module.exports.handleEvent = async function({ api, event, admin, DATA_DIR }) {
     if (u?.name) userName = u.name;
   } catch {}
 
-  let threadInfo = null;
+  // Check bot admin status
+  let isBotAdmin = false;
   try {
-    threadInfo = await new Promise((res, rej) => {
+    const threadInfo = await new Promise((res, rej) => {
       const r = api.getThreadInfo(threadID, (e, d) => e ? rej(e) : res(d));
       if (r && typeof r.then === 'function') r.then(res).catch(rej);
     });
+    isBotAdmin = threadInfo?.adminIDs?.some(a => (a.id || a) === botID);
   } catch {}
 
-  const isBotAdmin = threadInfo?.adminIDs?.some(a => (a.id || a) === botID);
+  // Add to persistent warn count
+  const warnCount = addWarning(DATA_DIR, threadID, senderID);
+  const remaining = WARN_MAX - warnCount;
+  const bars = '🟥'.repeat(warnCount) + '⬜'.repeat(Math.max(0, remaining));
 
-  const reason = isAbusing ? 'using inappropriate words repeatedly' : 'spamming';
-
-  if (now - lastWarn < WARN_WINDOW) return;
-  warned.set(warnKey, now);
-
-  spamTracker.delete(key);
-
-  if (!isBotAdmin) {
+  if (warnCount >= WARN_MAX) {
+    // Auto-kick
+    clearWarnings(DATA_DIR, threadID, senderID);
+    if (!isBotAdmin) {
+      return api.sendMessage(
+        `🚨 ${userName} reached ${WARN_MAX}/${WARN_MAX} warnings for ${reason}!\n\n❌ Cannot auto-kick — I need admin rights. Please remove them manually.`,
+        threadID
+      );
+    }
+    try {
+      await new Promise((res, rej) => {
+        const r = api.removeUserFromGroup(senderID, threadID, (e) => e ? rej(e) : res());
+        if (r && typeof r.then === 'function') r.then(res).catch(rej);
+      });
+      api.sendMessage(
+        `🚫 ${userName} has been auto-kicked!\n\n⚠️ Reason: ${reason} (reached ${WARN_MAX}/${WARN_MAX} warnings)\n\nRule reminder: No spamming or using bad language in this group!`,
+        threadID
+      );
+    } catch {
+      api.sendMessage(
+        `⚠️ Could not kick ${userName} even though they reached max warnings. Make sure I'm an admin!`,
+        threadID
+      );
+    }
+  } else {
+    // Issue warning
     api.sendMessage(
-      `⚠️ @${userName} Warning! Stop ${reason}! I need to be an admin to take action.`,
-      threadID
-    );
-    return;
-  }
-
-  try {
-    await new Promise((res, rej) => {
-      const r = api.removeUserFromGroup(senderID, threadID, (e) => e ? rej(e) : res());
-      if (r && typeof r.then === 'function') r.then(res).catch(rej);
-    });
-    api.sendMessage(
-      `🚫 ${userName} has been kicked for ${reason}.\n\n⚠️ Rule reminder: No spamming or using inappropriate language in this group!`,
-      threadID
-    );
-  } catch {
-    api.sendMessage(
-      `⚠️ Could not kick ${userName}. Please make sure I am an admin in this group.`,
+      `⚠️ Warning for ${userName}!\n\n${bars}\n📊 Strikes: ${warnCount}/${WARN_MAX}\n📋 Reason: ${reason}\n\n${remaining === 1 ? '🚨 One more strike = AUTO-KICK!' : `${remaining} more strike(s) until auto-kick.`}`,
       threadID
     );
   }
